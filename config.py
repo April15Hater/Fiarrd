@@ -4,7 +4,8 @@ import os
 load_dotenv()
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-assert ANTHROPIC_API_KEY, "ANTHROPIC_API_KEY not set in .env"
+if not ANTHROPIC_API_KEY:
+    raise ValueError("ANTHROPIC_API_KEY not set in .env")
 
 DB_PATH = os.getenv("DB_PATH", "jobsearch.db")
 CLAUDE_MODEL = "claude-sonnet-4-6"

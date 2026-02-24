@@ -8,7 +8,7 @@ import os
 import json
 import logging
 from pathlib import Path
-from datetime import date
+from datetime import date, timedelta
 
 import click
 
@@ -120,7 +120,7 @@ def add_job():
     keywords_list = structured.get("keywords", [])
     keywords_json = json.dumps(keywords_list)
     next_action_text, days_out = calculate_next_action("Prospect")
-    next_action_date = (date.today() - __import__("datetime").timedelta(days=0) + __import__("datetime").timedelta(days=days_out)).isoformat()
+    next_action_date = (date.today() + timedelta(days=days_out)).isoformat()
 
     opp_id = create_opportunity(
         company=company,
@@ -293,7 +293,7 @@ def send_outreach(contact_id):
             contact_id=contact_id,
         )
         click.echo(f"✅ Day 0 logged for {contact.full_name} on {today}")
-        click.echo(f"   Follow-up will be due in 3 days ({date.today().__class__.today().__class__.fromordinal(date.today().toordinal()+3).isoformat()})")
+        click.echo(f"   Follow-up will be due in 3 days ({(date.today() + timedelta(days=3)).isoformat()})")
 
 
 @cli.command("follow-up")

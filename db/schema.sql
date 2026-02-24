@@ -100,7 +100,7 @@ SELECT o.id, o.company, o.role_title, o.stage, o.next_action, o.next_action_date
 FROM opportunities o
 LEFT JOIN contacts c ON c.opportunity_id = o.id
 WHERE o.stage != 'Closed'
-  AND (o.next_action_date <= date('now') OR c.outreach_day0 = date('now','- 3 days') OR c.outreach_day0 = date('now','- 7 days'))
+  AND (o.next_action_date <= date('now') OR c.outreach_day0 = date('now','-3 days') OR c.outreach_day0 = date('now','-7 days'))
 ORDER BY o.tier ASC, o.next_action_date ASC;
 
 CREATE VIEW IF NOT EXISTS warm_leads AS
