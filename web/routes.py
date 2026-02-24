@@ -1,11 +1,13 @@
 """
 web/routes.py — All Flask routes for the local dashboard.
 """
+import csv
+import io
 import json
 import os
 from datetime import date, timedelta
 
-from flask import render_template, request, redirect, url_for, jsonify, flash
+from flask import render_template, request, redirect, url_for, jsonify, flash, make_response
 
 from models.opportunity import list_opportunities, get_opportunity, update_opportunity, create_opportunity
 from models.contact import list_contacts, get_contact, update_contact, create_contact
@@ -278,3 +280,86 @@ def register_routes(app):
             return redirect(url_for("opportunity_detail", opp_id=opp_id))
 
         return redirect(url_for("add_job"))
+
+    @app.route("/contact/<int:contact_id>/draft-outreach", methods=["POST"])
+    def draft_outreach_route(contact_id):
+        from modules.ai_engine import draft_outreach
+        contact = get_contact(contact_id)
+        if not contact:
+            return jsonify({"error": "Contact not found"}), 404
+        hook = request.form.get("hook", "").strip()
+        if not hook:
+            return jsonify({"error": "Please enter a hook (reason for reaching out)."}), 400
+        opp = get_opportunity(contact.opportunity_id) if contact.opportunity_id else None
+        company = contact.company or (opp.company if opp else "their company")
+        context = {
+            "contact_name": contact.full_name,
+            "contact_title": contact.title or "Professional",
+            "company": company,
+            "contact_type": contact.contact_type or "Other",
+            "hook": hook,
+        }
+        result = draft_outreach(context)
+        return jsonify(result)
+
+    @app.route("/export")
+    def export_csv():
+        opps = list_opportunities(exclude_closed=False)
+        if not opps:
+            return redirect(url_for("opportunities"))
+        fields = ["id", "company", "role_title", "job_family", "tier", "stage", "source",
+                  "fit_score", "salary_range", "next_action", "next_action_date",
+                  "date_added", "date_applied", "jd_url"]
+        output = io.StringIO()
+        writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
+        writer.writeheader()
+        for opp in opps:
+            writer.writerow({f: getattr(opp, f, "") for f in fields})
+        filename = f"jobsearch_export_{date.today().isoformat()}.csv"
+        resp = make_response(output.getvalue())
+        resp.headers["Content-Type"] = "text/csv"
+        resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
+        return resp
+
+    @app.route("/contact/<int:contact_id>/mark-followup", methods=["POST"])
+    def mark_followup(contact_id):
+        contact = get_contact(contact_id)
+        if not contact or not contact.outreach_day0:
+            return redirect(url_for("contacts"))
+        days_since = (date.today() - date.fromisoformat(contact.outreach_day0)).days
+        today_str = date.today().isoformat()
+        if days_since >= 6:
+            update_contact(contact_id, outreach_day7=today_str)
+            desc = f"Day 7 follow-up sent to {contact.full_name}"
+        else:
+            update_contact(contact_id, outreach_day3=today_str)
+            desc = f"Day 3 follow-up sent to {contact.full_name}"
+        log_activity(
+            activity_type="Follow-Up Sent",
+            description=desc,
+            opportunity_id=contact.opportunity_id,
+            contact_id=contact_id,
+        )
+        return redirect(url_for("contacts"))
+
+    @app.route("/settings", methods=["GET", "POST"])
+    def settings():
+        error = None
+        saved = request.args.get("saved") == "1"
+        resume_text = ""
+        if os.path.exists(RESUME_CACHE_PATH):
+            try:
+                resume_text = open(RESUME_CACHE_PATH, encoding="utf-8").read()
+            except Exception as e:
+                error = f"Could not read resume file: {e}"
+        if request.method == "POST":
+            new_text = request.form.get("resume_text", "")
+            try:
+                with open(RESUME_CACHE_PATH, "w", encoding="utf-8") as f:
+                    f.write(new_text)
+                return redirect(url_for("settings") + "?saved=1")
+            except Exception as e:
+                error = f"Could not save resume: {e}"
+                resume_text = new_text
+        return render_template("settings.html", resume_text=resume_text, saved=saved, error=error,
+                               resume_path=RESUME_CACHE_PATH)

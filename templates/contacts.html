@@ -49,6 +49,11 @@
           </span>
         </td>
         <td>
+          {% if c.id in followup_ids %}
+          <form method="POST" action="/contact/{{ c.id }}/mark-followup" style="margin-bottom:6px">
+            <button type="submit" class="btn btn-primary btn-sm">Mark Sent</button>
+          </form>
+          {% endif %}
           <form method="POST" action="/contact/{{ c.id }}/mark-response" style="display:flex;gap:6px">
             <select name="status" style="width:auto;font-size:12px;padding:4px 6px">
               <option value="Responded">Responded</option>
@@ -66,7 +71,7 @@
 </div>
 {% else %}
 <div class="card empty-state">
-  No contacts yet. Add contacts via CLI: <code>python main.py add-contact &lt;opp_id&gt;</code>
+  No contacts yet. Open an opportunity and use the "＋ Add Contact" form to add contacts.
 </div>
 {% endif %}
 {% endblock %}

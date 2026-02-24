@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Settings — Job Search Ops{% endblock %}
+{% block content %}
+
+<h1>Settings</h1>
+
+{% if saved %}
+<div class="alert" style="background:#065f46;border:1px solid #047857;color:#6ee7b7;margin-bottom:20px">
+  ✓ Resume saved successfully.
+</div>
+{% endif %}
+
+{% if error %}
+<div class="alert alert-warn">{{ error }}</div>
+{% endif %}
+
+<div class="card" style="max-width:800px">
+  <h2>Resume Cache</h2>
+  <p style="font-size:13px;color:#64748b;margin-bottom:16px">
+    This text is used by AI Fit Scoring to evaluate your resume against job descriptions.
+    Keep it current — paste your full resume in plain text.
+    <br><span style="font-size:12px;color:#475569">Saved to: <code style="background:#0f172a;padding:2px 6px;border-radius:4px">{{ resume_path }}</code></span>
+  </p>
+  <form method="POST" action="/settings">
+    <div class="form-group">
+      <label>Resume Text</label>
+      <textarea name="resume_text" rows="28" placeholder="Paste your full resume here in plain text...&#10;&#10;SUMMARY&#10;...&#10;&#10;EXPERIENCE&#10;...">{{ resume_text }}</textarea>
+    </div>
+    <button type="submit" class="btn btn-primary">Save Resume</button>
+  </form>
+</div>
+
+{% endblock %}

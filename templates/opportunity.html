@@ -166,6 +166,22 @@
           <span class="badge badge-gray">{{ c.contact_type or 'Contact' }}</span>
           {% if c.outreach_day0 %}<span style="font-size:11px;color:#64748b">Day 0: {{ c.outreach_day0 }}</span>{% endif %}
         </div>
+        <!-- Draft Outreach toggle -->
+        <div style="margin-top:8px">
+          <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="toggleOutreach({{ c.id }})">Draft Outreach</button>
+          <div id="outreach-{{ c.id }}" style="display:none;margin-top:10px">
+            <div class="form-group">
+              <label>Hook — why you're reaching out</label>
+              <textarea id="hook-{{ c.id }}" rows="2" placeholder="e.g. We were both at FinTech Summit, or I saw you lead the data platform rebuild at Acme..."></textarea>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <button class="btn btn-primary btn-sm" onclick="draftOutreach({{ c.id }}, this)">Generate</button>
+              <button class="btn btn-ghost btn-sm" onclick="toggleOutreach({{ c.id }})">Cancel</button>
+            </div>
+            <div id="outreach-error-{{ c.id }}" style="display:none;color:#ef4444;font-size:12px;margin-bottom:8px"></div>
+            <div id="outreach-result-{{ c.id }}" style="display:none"></div>
+          </div>
+        </div>
       </div>
       {% endfor %}
       {% else %}
@@ -357,6 +373,78 @@ function genPrep(btn) {
 function toggleAddContact() {
   const form = document.getElementById('add-contact-form');
   form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+function toggleOutreach(cId) {
+  const div = document.getElementById('outreach-' + cId);
+  div.style.display = div.style.display === 'none' ? 'block' : 'none';
+}
+
+function draftOutreach(cId, btn) {
+  const hook = document.getElementById('hook-' + cId).value.trim();
+  if (!hook) { document.getElementById('hook-' + cId).focus(); return; }
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  document.getElementById('outreach-error-' + cId).style.display = 'none';
+
+  fetch('/contact/' + cId + '/draft-outreach', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'hook=' + encodeURIComponent(hook)
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled = false;
+    if (data.error) {
+      btn.textContent = orig;
+      const el = document.getElementById('outreach-error-' + cId);
+      el.textContent = data.error;
+      el.style.display = 'block';
+      return;
+    }
+    btn.textContent = 'Re-generate';
+    const box = 'style="background:#0f172a;border-radius:6px;padding:10px;font-size:13px;color:#e2e8f0;white-space:pre-wrap;margin-bottom:4px"';
+    const label = 'style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;margin-top:10px"';
+    let html = '<div style="border-top:1px solid #334155;padding-top:12px">';
+    html += '<div ' + label + ' style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#3b82f6">LinkedIn Note <span style="font-weight:400;color:#475569">(' + (data.linkedin_note||'').length + ' chars)</span></div>';
+    html += '<div ' + box + '>' + escHtml(data.linkedin_note || '') + '</div>';
+    html += '<button onclick="copyText(\'ln-' + cId + '\')" data-text="' + escAttr(data.linkedin_note||'') + '" id="ln-' + cId + '" class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px">Copy</button>';
+    html += '<div ' + label + ' style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#f59e0b;margin-top:10px">Subject Line</div>';
+    html += '<div ' + box + '>' + escHtml(data.subject_line || '') + '</div>';
+    html += '<div ' + label + ' style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#10b981;margin-top:10px">InMail / Email</div>';
+    html += '<div ' + box + '>' + escHtml(data.inmail_or_email || '') + '</div>';
+    html += '<button onclick="copyText(\'em-' + cId + '\')" data-text="' + escAttr(data.inmail_or_email||'') + '" id="em-' + cId + '" class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px">Copy</button>';
+    html += '</div>';
+    const res = document.getElementById('outreach-result-' + cId);
+    res.innerHTML = html;
+    res.style.display = 'block';
+  })
+  .catch(() => {
+    btn.disabled = false;
+    btn.textContent = orig;
+    const el = document.getElementById('outreach-error-' + cId);
+    el.textContent = 'Request failed. Check the server logs.';
+    el.style.display = 'block';
+  });
+}
+
+function copyText(elId) {
+  const el = document.getElementById(elId);
+  const text = el.dataset.text || el.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = el.nextElementSibling || el;
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => { btn.textContent = orig; }, 1500);
+  });
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function escAttr(str) {
+  return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
 }
 </script>
 {% endblock %}
