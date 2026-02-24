@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Pipeline — Job Search Ops{% endblock %}
+{% block content %}
+
+<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+  <h1 style="margin:0">Pipeline</h1>
+</div>
+
+<!-- Filters -->
+<div class="card" style="padding:14px 20px;margin-bottom:20px">
+  <form method="GET" style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap">
+    <div>
+      <label>Stage</label>
+      <select name="stage" onchange="this.form.submit()">
+        <option value="">All stages</option>
+        {% for s in stage_order %}
+        <option value="{{ s }}" {% if current_stage == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Tier</label>
+      <select name="tier" onchange="this.form.submit()">
+        <option value="">All tiers</option>
+        {% for t in [1,2,3] %}
+        <option value="{{ t }}" {% if current_tier == t %}selected{% endif %}>Tier {{ t }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label>Job Family</label>
+      <select name="job_family" onchange="this.form.submit()">
+        <option value="">All families</option>
+        {% for k, v in job_families.items() %}
+        <option value="{{ k }}" {% if current_family == k %}selected{% endif %}>{{ v }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <a href="/opportunities" class="btn btn-ghost btn-sm">Clear</a>
+  </form>
+</div>
+
+{% if opportunities %}
+<div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th>Role</th>
+        <th>Stage</th>
+        <th>Tier</th>
+        <th>Family</th>
+        <th>Fit</th>
+        <th>Next Action</th>
+        <th>Due</th>
+        <th>Added</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for opp in opportunities %}
+      <tr>
+        <td><a href="/opportunity/{{ opp.id }}">{{ opp.company }}</a></td>
+        <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ opp.role_title }}</td>
+        <td>
+          <span class="badge {% if opp.stage in ['Offer Pending'] %}badge-green{% elif opp.stage == 'Closed' %}badge-gray{% elif opp.stage in ['HM Interview','Loop'] %}badge-purple{% elif opp.stage == 'Recruiter Screen' %}badge-blue{% else %}badge-yellow{% endif %}">
+            {{ opp.stage }}
+          </span>
+        </td>
+        <td style="color:#64748b">{% if opp.tier %}T{{ opp.tier }}{% else %}—{% endif %}</td>
+        <td style="color:#64748b;font-size:12px">{{ job_families.get(opp.job_family, '—') if opp.job_family else '—' }}</td>
+        <td>
+          {% if opp.fit_score %}
+          <div style="font-size:12px;font-weight:600;color:{% if opp.fit_score >= 8 %}#10b981{% elif opp.fit_score >= 6 %}#f59e0b{% else %}#ef4444{% endif %}">
+            {{ opp.fit_score }}/10
+          </div>
+          {% else %}—{% endif %}
+        </td>
+        <td style="color:#94a3b8;font-size:12px;max-width:180px">{{ opp.next_action or '—' }}</td>
+        <td style="font-size:12px;{% if opp.next_action_date and opp.next_action_date <= now|default('') %}color:#ef4444{% endif %}">
+          {{ opp.next_action_date or '—' }}
+        </td>
+        <td style="color:#64748b;font-size:12px">{{ opp.date_added or '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty-state">
+  No opportunities found. Add your first with: <code>python main.py add-job</code>
+</div>
+{% endif %}
+{% endblock %}

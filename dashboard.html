@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Job Search Ops{% endblock %}
+{% block content %}
+
+<h1>Dashboard</h1>
+
+{% if stale %}
+<div class="alert alert-warn">
+  ⚠ {{ stale|length }} opportunity{% if stale|length != 1 %}s{% endif %} not updated in 7+ days —
+  <a href="/opportunities">review pipeline</a>
+</div>
+{% endif %}
+
+<!-- Pipeline stage counts -->
+<div class="grid-3" style="margin-bottom:28px">
+  {% set stage_colors = {
+    'Prospect': '#64748b',
+    'Warm Lead': '#f59e0b',
+    'Applied': '#3b82f6',
+    'Recruiter Screen': '#8b5cf6',
+    'HM Interview': '#ec4899',
+    'Loop': '#06b6d4',
+    'Offer Pending': '#10b981',
+    'Closed': '#334155'
+  } %}
+  {% for stage in stage_order if stage != 'Closed' %}
+  <a href="/opportunities?stage={{ stage }}" style="text-decoration:none">
+    <div class="stat-card" style="border-left: 3px solid {{ stage_colors.get(stage, '#334155') }}">
+      <div class="value">{{ stage_counts.get(stage, 0) }}</div>
+      <div class="label">{{ stage }}</div>
+    </div>
+  </a>
+  {% endfor %}
+</div>
+
+<!-- Run Digest -->
+<div class="card" style="margin-bottom:24px">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <h2 style="margin:0">Daily Digest</h2>
+    <button class="btn btn-primary" onclick="runDigest(this)">▶ Run Digest</button>
+  </div>
+  <div id="digest-output"></div>
+</div>
+
+<!-- Today's Queue -->
+<div class="card">
+  <h2>Today's Queue</h2>
+  {% if today_queue %}
+  <table>
+    <thead>
+      <tr>
+        <th>Company</th>
+        <th>Role</th>
+        <th>Stage</th>
+        <th>Next Action</th>
+        <th>Due</th>
+        <th>Contact</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in today_queue %}
+      <tr>
+        <td><a href="/opportunity/{{ item.id }}">{{ item.company }}</a></td>
+        <td>{{ item.role_title }}</td>
+        <td><span class="badge badge-blue">{{ item.stage }}</span></td>
+        <td style="color:#94a3b8;font-size:12px">{{ item.next_action or '—' }}</td>
+        <td style="font-size:12px">{{ item.next_action_date or '—' }}</td>
+        <td style="font-size:12px">{{ item.contact_name or '—' }}</td>
+        <td>
+          {% if item.response_status %}
+          <span class="badge {% if item.response_status == 'Responded' %}badge-green{% elif item.response_status == 'Meeting Scheduled' %}badge-blue{% elif item.response_status == 'No Response' %}badge-red{% else %}badge-yellow{% endif %}">
+            {{ item.response_status }}
+          </span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">No items in today's queue. You're clear! 🎉</div>
+  {% endif %}
+</div>
+
+<!-- Stale records -->
+{% if stale %}
+<div class="card">
+  <h2>Stale Records (7+ days)</h2>
+  <table>
+    <thead>
+      <tr><th>Company</th><th>Role</th><th>Stage</th><th>Last Updated</th></tr>
+    </thead>
+    <tbody>
+      {% for item in stale %}
+      <tr>
+        <td><a href="/opportunity/{{ item.id }}">{{ item.company }}</a></td>
+        <td>{{ item.role_title }}</td>
+        <td><span class="badge badge-gray">{{ item.stage }}</span></td>
+        <td style="color:#ef4444;font-size:12px">{{ item.updated_at[:10] if item.updated_at else '—' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+<script>
+async function runDigest(btn) {
+  btn.disabled = true;
+  btn.textContent = '⏳ Generating...';
+  const out = document.getElementById('digest-output');
+  out.style.display = 'block';
+  out.textContent = 'Calling AI...';
+  try {
+    const res = await fetch('/run-digest', { method: 'POST' });
+    const data = await res.json();
+    out.textContent = data.digest || data.error || 'No output.';
+  } catch(e) {
+    out.textContent = 'Error: ' + e.message;
+  }
+  btn.disabled = false;
+  btn.textContent = '▶ Run Digest';
+}
+</script>
+{% endblock %}

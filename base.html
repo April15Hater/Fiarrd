@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Job Search Ops{% endblock %}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+    nav { background: #1e293b; border-bottom: 1px solid #334155; padding: 0 24px; display: flex; align-items: center; gap: 32px; height: 56px; }
+    nav a { color: #94a3b8; text-decoration: none; font-size: 14px; font-weight: 500; padding: 6px 0; border-bottom: 2px solid transparent; transition: all .15s; }
+    nav a:hover, nav a.active { color: #e2e8f0; border-bottom-color: #3b82f6; }
+    nav .brand { color: #f8fafc; font-weight: 700; font-size: 16px; border-bottom: none !important; margin-right: 16px; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 32px 24px; }
+    h1 { font-size: 22px; font-weight: 700; color: #f8fafc; margin-bottom: 24px; }
+    h2 { font-size: 16px; font-weight: 600; color: #cbd5e1; margin-bottom: 12px; }
+    .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { text-align: left; padding: 10px 12px; background: #0f172a; color: #64748b; font-weight: 600; text-transform: uppercase; font-size: 11px; letter-spacing: .05em; border-bottom: 1px solid #334155; }
+    td { padding: 10px 12px; border-bottom: 1px solid #1e293b; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #1e293b; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .badge-blue   { background: #1d4ed8; color: #bfdbfe; }
+    .badge-green  { background: #065f46; color: #6ee7b7; }
+    .badge-yellow { background: #78350f; color: #fde68a; }
+    .badge-red    { background: #7f1d1d; color: #fca5a5; }
+    .badge-gray   { background: #334155; color: #94a3b8; }
+    .badge-purple { background: #4c1d95; color: #c4b5fd; }
+    .btn { display: inline-block; padding: 7px 14px; border-radius: 6px; font-size: 13px; font-weight: 500; cursor: pointer; border: none; text-decoration: none; transition: opacity .15s; }
+    .btn:hover { opacity: .85; }
+    .btn-primary { background: #3b82f6; color: #fff; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+    .btn-ghost { background: #334155; color: #cbd5e1; }
+    .btn-danger { background: #ef4444; color: #fff; }
+    a { color: #60a5fa; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .empty-state { color: #475569; font-size: 14px; padding: 24px; text-align: center; }
+    select, input[type="text"], textarea { background: #0f172a; border: 1px solid #334155; color: #e2e8f0; border-radius: 6px; padding: 7px 10px; font-size: 13px; width: 100%; }
+    select:focus, input:focus, textarea:focus { outline: 2px solid #3b82f6; border-color: #3b82f6; }
+    label { font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; display: block; margin-bottom: 4px; }
+    .form-group { margin-bottom: 14px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+    .stat-card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 20px; }
+    .stat-card .value { font-size: 32px; font-weight: 700; color: #f8fafc; }
+    .stat-card .label { font-size: 12px; color: #64748b; margin-top: 4px; text-transform: uppercase; letter-spacing: .05em; }
+    #digest-output { background: #0f172a; border: 1px solid #334155; border-radius: 6px; padding: 16px; font-family: monospace; font-size: 13px; white-space: pre-wrap; color: #a3e635; min-height: 100px; display: none; margin-top: 12px; }
+    .alert { padding: 12px 16px; border-radius: 6px; font-size: 13px; margin-bottom: 16px; }
+    .alert-warn { background: #78350f; border: 1px solid #92400e; color: #fde68a; }
+    .score-bar { height: 6px; border-radius: 3px; background: #334155; margin-top: 4px; }
+    .score-fill { height: 100%; border-radius: 3px; background: #3b82f6; }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="/" class="brand">⚡ Job Search Ops</a>
+    <a href="/" {% if request.endpoint == 'dashboard' %}class="active"{% endif %}>Dashboard</a>
+    <a href="/opportunities" {% if request.endpoint in ['opportunities','opportunity_detail'] %}class="active"{% endif %}>Pipeline</a>
+    <a href="/contacts" {% if request.endpoint == 'contacts' %}class="active"{% endif %}>Contacts</a>
+  </nav>
+  <div class="container">
+    {% block content %}{% endblock %}
+  </div>
+</body>
+</html>

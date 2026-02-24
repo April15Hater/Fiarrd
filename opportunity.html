@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+{% block title %}{{ opp.company }} — {{ opp.role_title }}{% endblock %}
+{% block content %}
+
+<div style="margin-bottom:20px">
+  <a href="/opportunities" style="color:#64748b;font-size:13px">← Pipeline</a>
+</div>
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;flex-wrap:wrap;gap:12px">
+  <div>
+    <h1 style="margin-bottom:4px">{{ opp.company }}</h1>
+    <div style="color:#94a3b8;font-size:15px">{{ opp.role_title }}</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center">
+    {% if opp.fit_score %}
+    <div style="background:#1e293b;border:1px solid #334155;border-radius:8px;padding:10px 16px;text-align:center">
+      <div style="font-size:22px;font-weight:700;color:{% if opp.fit_score >= 8 %}#10b981{% elif opp.fit_score >= 6 %}#f59e0b{% else %}#ef4444{% endif %}">{{ opp.fit_score }}/10</div>
+      <div style="font-size:11px;color:#64748b">FIT SCORE</div>
+    </div>
+    {% endif %}
+    <span class="badge {% if opp.stage in ['Offer Pending'] %}badge-green{% elif opp.stage == 'Closed' %}badge-gray{% elif opp.stage in ['HM Interview','Loop'] %}badge-purple{% elif opp.stage == 'Recruiter Screen' %}badge-blue{% else %}badge-yellow{% endif %}" style="font-size:13px;padding:6px 12px">
+      {{ opp.stage }}
+    </span>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- Left column -->
+  <div>
+    <!-- Meta info -->
+    <div class="card">
+      <h2>Details</h2>
+      <table style="font-size:13px">
+        <tr><td style="color:#64748b;width:130px;padding:6px 0">Source</td><td>{{ opp.source or '—' }}</td></tr>
+        <tr><td style="color:#64748b;padding:6px 0">Tier</td><td>{% if opp.tier %}T{{ opp.tier }}{% else %}—{% endif %}</td></tr>
+        <tr><td style="color:#64748b;padding:6px 0">Job Family</td><td>{{ job_families.get(opp.job_family, '—') if opp.job_family else '—' }}</td></tr>
+        <tr><td style="color:#64748b;padding:6px 0">Salary Range</td><td>{{ opp.salary_range or '—' }}</td></tr>
+        <tr><td style="color:#64748b;padding:6px 0">Added</td><td>{{ opp.date_added or '—' }}</td></tr>
+        <tr><td style="color:#64748b;padding:6px 0">Applied</td><td>{{ opp.date_applied or '—' }}</td></tr>
+        {% if opp.jd_url %}
+        <tr><td style="color:#64748b;padding:6px 0">JD URL</td><td><a href="{{ opp.jd_url }}" target="_blank">View ↗</a></td></tr>
+        {% endif %}
+      </table>
+    </div>
+
+    <!-- Next action -->
+    <div class="card">
+      <h2>Next Action</h2>
+      <div style="color:#f8fafc;margin-bottom:4px">{{ opp.next_action or 'Not set' }}</div>
+      <div style="font-size:12px;color:#64748b">Due: {{ opp.next_action_date or '—' }}</div>
+    </div>
+
+    <!-- Advance stage -->
+    <div class="card">
+      <h2>Advance Stage</h2>
+      <form method="POST" action="/opportunity/{{ opp.id }}/advance">
+        <div class="form-group">
+          <label>New Stage</label>
+          <select name="new_stage">
+            {% for s in stage_order %}
+            <option value="{{ s }}" {% if s == opp.stage %}selected{% endif %}>{{ s }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Note (optional)</label>
+          <input type="text" name="note" placeholder="What happened?">
+        </div>
+        <button type="submit" class="btn btn-primary btn-sm">Update Stage</button>
+      </form>
+    </div>
+
+    <!-- Add note -->
+    <div class="card">
+      <h2>Add Note</h2>
+      <form method="POST" action="/opportunity/{{ opp.id }}/note">
+        <div class="form-group">
+          <textarea name="note" rows="3" placeholder="Add a note..."></textarea>
+        </div>
+        <button type="submit" class="btn btn-ghost btn-sm">Save Note</button>
+      </form>
+      {% if opp.notes %}
+      <div style="margin-top:12px;font-size:13px;color:#94a3b8;white-space:pre-wrap;border-top:1px solid #334155;padding-top:12px">{{ opp.notes }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Right column -->
+  <div>
+    <!-- AI Fit Summary -->
+    {% if fit_summary %}
+    <div class="card">
+      <h2>AI Fit Analysis</h2>
+      {% if fit_summary.score_rationale %}
+      <p style="font-size:13px;color:#cbd5e1;margin-bottom:12px">{{ fit_summary.score_rationale }}</p>
+      {% endif %}
+      {% if fit_summary.top_strengths %}
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:#10b981;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Strengths</div>
+        {% for s in fit_summary.top_strengths %}
+        <div style="font-size:13px;color:#94a3b8;padding:2px 0">✓ {{ s }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if fit_summary.gaps_or_risks %}
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:#ef4444;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Gaps / Risks</div>
+        {% for g in fit_summary.gaps_or_risks %}
+        <div style="font-size:13px;color:#94a3b8;padding:2px 0">⚠ {{ g }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if fit_summary.suggested_bullet_rewrite %}
+      <div style="background:#0f172a;border-radius:6px;padding:10px;font-size:12px;color:#a3e635;margin-top:8px">
+        💡 {{ fit_summary.suggested_bullet_rewrite }}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Keywords -->
+    {% if keywords %}
+    <div class="card">
+      <h2>ATS Keywords</h2>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        {% for kw in keywords %}
+        <span class="badge badge-gray">{{ kw }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Contacts -->
+    <div class="card">
+      <h2>Contacts ({{ contacts|length }})</h2>
+      {% if contacts %}
+      {% for c in contacts %}
+      <div style="border-bottom:1px solid #334155;padding:10px 0;{% if loop.last %}border-bottom:none{% endif %}">
+        <div style="font-weight:600;font-size:14px">{{ c.full_name }}</div>
+        <div style="font-size:12px;color:#64748b">{{ c.title or '' }}{% if c.company %} · {{ c.company }}{% endif %}</div>
+        <div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap">
+          <span class="badge {% if c.response_status == 'Responded' %}badge-green{% elif c.response_status == 'Meeting Scheduled' %}badge-blue{% elif c.response_status == 'No Response' %}badge-red{% else %}badge-yellow{% endif %}">
+            {{ c.response_status }}
+          </span>
+          <span class="badge badge-gray">{{ c.contact_type or 'Contact' }}</span>
+          {% if c.outreach_day0 %}<span style="font-size:11px;color:#64748b">Day 0: {{ c.outreach_day0 }}</span>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="empty-state" style="padding:12px">No contacts yet. Use CLI: <code>python main.py add-contact {{ opp.id }}</code></div>
+      {% endif %}
+    </div>
+
+    <!-- Activity Log -->
+    <div class="card">
+      <h2>Activity Log</h2>
+      {% if activity %}
+      {% for entry in activity %}
+      <div style="border-bottom:1px solid #1e293b;padding:8px 0;{% if loop.last %}border-bottom:none{% endif %}">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+          <span class="badge badge-gray" style="font-size:10px">{{ entry.activity_type }}</span>
+          <span style="font-size:11px;color:#475569">{{ entry.created_at[:16] if entry.created_at else '' }}</span>
+        </div>
+        {% if entry.description %}
+        <div style="font-size:13px;color:#94a3b8;margin-top:4px">{{ entry.description }}</div>
+        {% endif %}
+      </div>
+      {% endfor %}
+      {% else %}
+      <div class="empty-state" style="padding:12px">No activity logged yet.</div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

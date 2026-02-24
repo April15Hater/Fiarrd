@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Contacts — Job Search Ops{% endblock %}
+{% block content %}
+
+<h1>Contacts</h1>
+
+{% if followup_ids %}
+<div class="alert alert-warn">
+  ⚠ {{ followup_ids|length }} contact{% if followup_ids|length != 1 %}s{% endif %} need a follow-up today.
+</div>
+{% endif %}
+
+{% if contacts %}
+<div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Title / Company</th>
+        <th>Type</th>
+        <th>Opportunity</th>
+        <th>Outreach D0</th>
+        <th>Status</th>
+        <th>Action</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in contacts %}
+      <tr {% if c.id in followup_ids %}style="background:#1a1200"{% endif %}>
+        <td>
+          <div style="font-weight:600">{{ c.full_name }}</div>
+          {% if c.id in followup_ids %}
+          <div style="font-size:11px;color:#f59e0b">⚡ Follow-up due</div>
+          {% endif %}
+        </td>
+        <td style="font-size:12px;color:#94a3b8">
+          {{ c.title or '—' }}{% if c.company %}<br>{{ c.company }}{% endif %}
+        </td>
+        <td><span class="badge badge-gray" style="font-size:11px">{{ c.contact_type or '—' }}</span></td>
+        <td>
+          {% if c.opportunity_id %}
+          <a href="/opportunity/{{ c.opportunity_id }}" style="font-size:12px">View →</a>
+          {% else %}—{% endif %}
+        </td>
+        <td style="font-size:12px;color:#64748b">{{ c.outreach_day0 or '—' }}</td>
+        <td>
+          <span class="badge {% if c.response_status == 'Responded' %}badge-green{% elif c.response_status == 'Meeting Scheduled' %}badge-blue{% elif c.response_status == 'No Response' %}badge-red{% else %}badge-yellow{% endif %}">
+            {{ c.response_status }}
+          </span>
+        </td>
+        <td>
+          <form method="POST" action="/contact/{{ c.id }}/mark-response" style="display:flex;gap:6px">
+            <select name="status" style="width:auto;font-size:12px;padding:4px 6px">
+              <option value="Responded">Responded</option>
+              <option value="No Response">No Response</option>
+              <option value="Meeting Scheduled">Meeting Scheduled</option>
+              <option value="Pending">Pending</option>
+            </select>
+            <button type="submit" class="btn btn-ghost btn-sm">Mark</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card empty-state">
+  No contacts yet. Add contacts via CLI: <code>python main.py add-contact &lt;opp_id&gt;</code>
+</div>
+{% endif %}
+{% endblock %}
