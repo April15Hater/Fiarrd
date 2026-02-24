@@ -6,13 +6,28 @@
 
 {% if saved %}
 <div class="alert" style="background:#065f46;border:1px solid #047857;color:#6ee7b7;margin-bottom:20px">
-  ✓ Resume saved successfully.
+  ✓ Settings saved successfully.
 </div>
 {% endif %}
 
 {% if error %}
 <div class="alert alert-warn">{{ error }}</div>
 {% endif %}
+
+<div class="card" style="max-width:800px;margin-bottom:20px">
+  <h2>Scheduler</h2>
+  <p style="font-size:13px;color:#64748b;margin-bottom:16px">
+    Daily digest and stale-record check are run automatically at this time while the dashboard is running.
+  </p>
+  <form method="POST" action="/settings">
+    <input type="hidden" name="resume_text" value="{{ resume_text | e }}">
+    <div class="form-group" style="max-width:160px">
+      <label>Digest Time (24h)</label>
+      <input type="time" name="digest_time" value="{{ digest_time }}">
+    </div>
+    <button type="submit" class="btn btn-primary">Save Time</button>
+  </form>
+</div>
 
 <div class="card" style="max-width:800px">
   <h2>Resume Cache</h2>
@@ -22,6 +37,7 @@
     <br><span style="font-size:12px;color:#475569">Saved to: <code style="background:#0f172a;padding:2px 6px;border-radius:4px">{{ resume_path }}</code></span>
   </p>
   <form method="POST" action="/settings">
+    <input type="hidden" name="digest_time" value="{{ digest_time }}">
     <div class="form-group">
       <label>Resume Text</label>
       <textarea name="resume_text" rows="28" placeholder="Paste your full resume here in plain text...&#10;&#10;SUMMARY&#10;...&#10;&#10;EXPERIENCE&#10;...">{{ resume_text }}</textarea>

@@ -13,4 +13,6 @@ register_routes(app)
 
 
 def run():
+    from modules.scheduler import start_scheduler
+    start_scheduler()
     app.run(host="0.0.0.0", port=5001, debug=False)

@@ -16,7 +16,7 @@ from modules.workflow import (
     get_today_queue, get_pipeline_summary, get_followup_queue,
     flag_stale_records, advance_stage, calculate_next_action
 )
-from config import STAGE_ORDER, JOB_FAMILIES, RESUME_CACHE_PATH
+from config import STAGE_ORDER, JOB_FAMILIES, RESUME_CACHE_PATH, APP_SETTINGS_PATH
 
 
 def register_routes(app):
@@ -346,20 +346,46 @@ def register_routes(app):
     def settings():
         error = None
         saved = request.args.get("saved") == "1"
+
+        # --- Load persisted app settings ---
+        app_settings = {}
+        if os.path.exists(APP_SETTINGS_PATH):
+            try:
+                with open(APP_SETTINGS_PATH, encoding="utf-8") as f:
+                    app_settings = json.load(f)
+            except Exception:
+                pass
+        digest_time = app_settings.get("digest_time", "08:00")
+
+        # --- Load resume text ---
         resume_text = ""
         if os.path.exists(RESUME_CACHE_PATH):
             try:
                 resume_text = open(RESUME_CACHE_PATH, encoding="utf-8").read()
             except Exception as e:
                 error = f"Could not read resume file: {e}"
+
         if request.method == "POST":
             new_text = request.form.get("resume_text", "")
+            new_digest_time = request.form.get("digest_time", "08:00").strip() or "08:00"
             try:
                 with open(RESUME_CACHE_PATH, "w", encoding="utf-8") as f:
                     f.write(new_text)
+                app_settings["digest_time"] = new_digest_time
+                with open(APP_SETTINGS_PATH, "w", encoding="utf-8") as f:
+                    json.dump(app_settings, f, indent=2)
+                # Live-reschedule if digest time changed
+                if new_digest_time != digest_time:
+                    try:
+                        from modules.scheduler import reschedule
+                        reschedule(new_digest_time)
+                    except Exception:
+                        pass
                 return redirect(url_for("settings") + "?saved=1")
             except Exception as e:
-                error = f"Could not save resume: {e}"
+                error = f"Could not save settings: {e}"
                 resume_text = new_text
+                digest_time = new_digest_time
+
         return render_template("settings.html", resume_text=resume_text, saved=saved, error=error,
-                               resume_path=RESUME_CACHE_PATH)
+                               resume_path=RESUME_CACHE_PATH, digest_time=digest_time)

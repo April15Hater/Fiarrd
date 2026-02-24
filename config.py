@@ -13,6 +13,9 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 # Store master resume text here after first run (never in DB, never in git)
 RESUME_CACHE_PATH = os.getenv("RESUME_CACHE_PATH", ".resume_cache.txt")
 
+# Persisted app settings (scheduler time, etc.)
+APP_SETTINGS_PATH = os.getenv("APP_SETTINGS_PATH", "app_settings.json")
+
 # Job family labels
 JOB_FAMILIES = {
     "A": "Analytics Manager",
