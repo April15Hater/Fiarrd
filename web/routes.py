@@ -286,25 +286,30 @@ def register_routes(app):
             jd_keywords = request.form.get("jd_keywords", "[]") or "[]"
             next_action_text, days_out = calculate_next_action("Prospect")
             next_action_date = (date.today() + timedelta(days=days_out)).isoformat()
-            opp_id = create_opportunity(
-                company=company,
-                role_title=role_title,
-                job_family=job_family,
-                tier=tier,
-                stage="Prospect",
-                source=source_label,
-                salary_range=salary_range,
-                jd_url=jd_url,
-                jd_raw=jd_raw,
-                jd_keywords=jd_keywords,
-                next_action=next_action_text,
-                next_action_date=next_action_date,
-            )
-            log_activity(
-                activity_type="Note Added",
-                description="Opportunity created via web UI",
-                opportunity_id=opp_id,
-            )
+            try:
+                opp_id = create_opportunity(
+                    company=company,
+                    role_title=role_title,
+                    job_family=job_family,
+                    tier=tier,
+                    stage="Prospect",
+                    source=source_label,
+                    salary_range=salary_range,
+                    jd_url=jd_url,
+                    jd_raw=jd_raw,
+                    jd_keywords=jd_keywords,
+                    next_action=next_action_text,
+                    next_action_date=next_action_date,
+                )
+                log_activity(
+                    activity_type="Note Added",
+                    description="Opportunity created via web UI",
+                    opportunity_id=opp_id,
+                )
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                return render_template("add_job.html", step=1, error=f"Failed to save opportunity: {e}")
             return redirect(url_for("opportunity_detail", opp_id=opp_id))
 
         return redirect(url_for("add_job"))

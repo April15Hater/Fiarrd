@@ -43,7 +43,7 @@ def _run_stale_check():
     if stale:
         print(f"[scheduler] WARNING: {len(stale)} stale record(s) — no update in 7+ days:")
         for opp in stale:
-            print(f"  - {opp.company} — {opp.role_title} (stage: {opp.stage})")
+            print(f"  - {opp['company']} — {opp['role_title']} (stage: {opp['stage']})")
     else:
         print("[scheduler] Stale check: no stale records.")
 
