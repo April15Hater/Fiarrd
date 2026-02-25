@@ -182,6 +182,26 @@
             <div id="outreach-result-{{ c.id }}" style="display:none"></div>
           </div>
         </div>
+        <!-- Draft Thank You toggle -->
+        <div style="margin-top:6px">
+          <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="toggleThankYou({{ c.id }})">Draft Thank You</button>
+          <div id="thankyou-{{ c.id }}" style="display:none;margin-top:10px">
+            <div class="form-group">
+              <label>Key moment from the conversation</label>
+              <textarea id="km-{{ c.id }}" rows="2" placeholder="e.g. We discussed migrating from Tableau to Looker..."></textarea>
+            </div>
+            <div class="form-group">
+              <label>Fit point to reinforce</label>
+              <textarea id="fp-{{ c.id }}" rows="2" placeholder="e.g. My BigQuery + Looker migration experience is directly applicable..."></textarea>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:8px">
+              <button class="btn btn-primary btn-sm" onclick="draftThankYou({{ c.id }}, this)">Generate</button>
+              <button class="btn btn-ghost btn-sm" onclick="toggleThankYou({{ c.id }})">Cancel</button>
+            </div>
+            <div id="thankyou-error-{{ c.id }}" style="display:none;color:#ef4444;font-size:12px;margin-bottom:8px"></div>
+            <div id="thankyou-result-{{ c.id }}" style="display:none"></div>
+          </div>
+        </div>
       </div>
       {% endfor %}
       {% else %}
@@ -414,7 +434,13 @@ function draftOutreach(cId, btn) {
     html += '<div ' + box + '>' + escHtml(data.subject_line || '') + '</div>';
     html += '<div ' + label + ' style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#10b981;margin-top:10px">InMail / Email</div>';
     html += '<div ' + box + '>' + escHtml(data.inmail_or_email || '') + '</div>';
+    lastDraft[cId] = {subject: data.subject_line || '', body: data.inmail_or_email || ''};
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">';
     html += '<button onclick="copyText(\'em-' + cId + '\')" data-text="' + escAttr(data.inmail_or_email||'') + '" id="em-' + cId + '" class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px">Copy</button>';
+    if (CONTACT_HAS_EMAIL[cId]) {
+      html += '<button id="send-outreach-' + cId + '" onclick="sendEmail(' + cId + ', \'outreach\', this)" class="btn btn-primary btn-sm" style="font-size:11px;padding:2px 8px">Send Email</button>';
+    }
+    html += '</div>';
     html += '</div>';
     const res = document.getElementById('outreach-result-' + cId);
     res.innerHTML = html;
@@ -445,6 +471,106 @@ function escHtml(str) {
 }
 function escAttr(str) {
   return str.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+}
+
+// --- Email capability map & draft storage ---
+const CONTACT_HAS_EMAIL = {
+  {% for c in contacts %}{{ c.id }}: {{ 'true' if c.email else 'false' }},
+  {% endfor %}
+};
+const lastDraft = {};
+const lastThankYou = {};
+
+function toggleThankYou(cId) {
+  const div = document.getElementById('thankyou-' + cId);
+  div.style.display = div.style.display === 'none' ? 'block' : 'none';
+}
+
+function draftThankYou(cId, btn) {
+  const km = document.getElementById('km-' + cId).value.trim();
+  const fp = document.getElementById('fp-' + cId).value.trim();
+  if (!km) { document.getElementById('km-' + cId).focus(); return; }
+  if (!fp) { document.getElementById('fp-' + cId).focus(); return; }
+  const orig = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  document.getElementById('thankyou-error-' + cId).style.display = 'none';
+
+  const params = new URLSearchParams({key_moment: km, fit_point: fp});
+  fetch('/contact/' + cId + '/draft-thank-you', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: params.toString()
+  })
+  .then(r => r.json())
+  .then(data => {
+    btn.disabled = false;
+    if (data.error) {
+      btn.textContent = orig;
+      const el = document.getElementById('thankyou-error-' + cId);
+      el.textContent = data.error;
+      el.style.display = 'block';
+      return;
+    }
+    btn.textContent = 'Re-generate';
+    lastThankYou[cId] = {subject: data.subject || '', body: data.body || ''};
+    const box = 'style="background:#0f172a;border-radius:6px;padding:10px;font-size:13px;color:#e2e8f0;white-space:pre-wrap;margin-bottom:4px"';
+    const lbl = 'style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px"';
+    let html = '<div style="border-top:1px solid #334155;padding-top:12px">';
+    html += '<div ' + lbl + ' style="color:#f59e0b">Subject</div>';
+    html += '<div ' + box + '>' + escHtml(data.subject || '') + '</div>';
+    html += '<div ' + lbl + ' style="color:#10b981;margin-top:10px">Body</div>';
+    html += '<div ' + box + '>' + escHtml(data.body || '') + '</div>';
+    html += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">';
+    html += '<button onclick="copyText(\'ty-' + cId + '\')" data-text="' + escAttr(data.body||'') + '" id="ty-' + cId + '" class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px">Copy Body</button>';
+    if (CONTACT_HAS_EMAIL[cId]) {
+      html += '<button id="send-ty-' + cId + '" onclick="sendEmail(' + cId + ', \'thank_you\', this)" class="btn btn-primary btn-sm" style="font-size:11px;padding:2px 8px">Send Email</button>';
+    }
+    html += '</div></div>';
+    const res = document.getElementById('thankyou-result-' + cId);
+    res.innerHTML = html;
+    res.style.display = 'block';
+  })
+  .catch(() => {
+    btn.disabled = false;
+    btn.textContent = orig;
+    const el = document.getElementById('thankyou-error-' + cId);
+    el.textContent = 'Request failed. Check the server logs.';
+    el.style.display = 'block';
+  });
+}
+
+function sendEmail(cId, type, btn) {
+  const draft = type === 'outreach' ? lastDraft[cId] : lastThankYou[cId];
+  if (!draft || !draft.body) { alert('Generate a draft first.'); return; }
+  if (!confirm('Send this email to the contact?')) return;
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Sending...';
+  const params = new URLSearchParams({subject: draft.subject, body: draft.body, email_type: type});
+  fetch('/contact/' + cId + '/send-email', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: params.toString()
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.error) {
+      btn.disabled = false;
+      btn.textContent = orig;
+      alert('Send failed: ' + data.error);
+      return;
+    }
+    btn.textContent = 'Sent ✓';
+    btn.style.background = '#10b981';
+    btn.style.color = '#fff';
+    btn.style.border = 'none';
+  })
+  .catch(() => {
+    btn.disabled = false;
+    btn.textContent = orig;
+    alert('Request failed. Check the server logs.');
+  });
 }
 </script>
 {% endblock %}

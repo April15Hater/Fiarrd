@@ -46,6 +46,12 @@ OWNER_CONTEXT = {
     "location": "Remote or hybrid (Charlotte NC metro)",
 }
 
+# Email / SMTP relay (LAN relay — no auth, no TLS)
+SMTP_HOST = os.getenv("SMTP_HOST", "192.168.1.24")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "25"))
+SMTP_FROM = os.getenv("SMTP_FROM", "noreply@joeysolomon.com")
+SENDER_NAME = os.getenv("SENDER_NAME", "Joey Solomon")
+
 OWNER_BACKGROUND_SUMMARY = (
     f"Data & Analytics Manager with {OWNER_CONTEXT['years_experience']} in {OWNER_CONTEXT['industries']}. "
     f"Core stack: {OWNER_CONTEXT['core_stack']}. "

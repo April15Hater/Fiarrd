@@ -302,6 +302,71 @@ def register_routes(app):
         result = draft_outreach(context)
         return jsonify(result)
 
+    @app.route("/contact/<int:contact_id>/send-email", methods=["POST"])
+    def send_email_route(contact_id):
+        from modules.mailer import send_email
+        contact = get_contact(contact_id)
+        if not contact:
+            return jsonify({"error": "Contact not found"}), 404
+        if not contact.email:
+            return jsonify({"error": "No email address on file for this contact."}), 400
+        subject = request.form.get("subject", "").strip()
+        body = request.form.get("body", "").strip()
+        email_type = request.form.get("email_type", "outreach")
+        if not subject or not body:
+            return jsonify({"error": "Subject and body are required."}), 400
+        try:
+            send_email(contact.email, subject, body)
+        except Exception as e:
+            return jsonify({"error": f"Failed to send: {str(e)}"}), 500
+        today_str = date.today().isoformat()
+        if email_type == "outreach" and not contact.outreach_day0:
+            update_contact(contact_id, outreach_day0=today_str)
+        activity_label = "Outreach Sent" if email_type == "outreach" else "Thank You Sent"
+        log_activity(
+            activity_type=activity_label,
+            description=f"Email sent to {contact.full_name} <{contact.email}>: {subject}",
+            opportunity_id=contact.opportunity_id,
+            contact_id=contact_id,
+        )
+        return jsonify({"ok": True, "message": f"Sent to {contact.email}"})
+
+    @app.route("/contact/<int:contact_id>/draft-thank-you", methods=["POST"])
+    def draft_thank_you_route(contact_id):
+        from modules.ai_engine import draft_thank_you
+        contact = get_contact(contact_id)
+        if not contact:
+            return jsonify({"error": "Contact not found"}), 404
+        key_moment = request.form.get("key_moment", "").strip()
+        fit_point = request.form.get("fit_point", "").strip()
+        if not key_moment or not fit_point:
+            return jsonify({"error": "Key moment and fit point are required."}), 400
+        opp = get_opportunity(contact.opportunity_id) if contact.opportunity_id else None
+        company = contact.company or (opp.company if opp else "the company")
+        try:
+            raw = draft_thank_you(
+                interviewer_name=contact.full_name,
+                interviewer_title=contact.title or "the team",
+                company=company,
+                key_moment=key_moment,
+                fit_point=fit_point,
+            )
+            lines = raw.strip().split("\n")
+            subject = f"Thank you — {company}"
+            body = raw.strip()
+            if lines[0].lower().startswith("subject:"):
+                subject = lines[0][8:].strip()
+                body = "\n".join(lines[1:]).strip()
+            log_activity(
+                activity_type="AI Action",
+                description=f"Thank-you email drafted for {contact.full_name}",
+                opportunity_id=contact.opportunity_id,
+                contact_id=contact_id,
+            )
+            return jsonify({"subject": subject, "body": body})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
     @app.route("/export")
     def export_csv():
         opps = list_opportunities(exclude_closed=False)
