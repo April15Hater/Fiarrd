@@ -9,12 +9,17 @@ A personal job search pipeline manager built on SQLite, with a Click CLI, a loca
 - **Pipeline tracking** — 8-stage funnel (Prospect → Closed) with tier priorities and job family labels
 - **AI fit scoring** — Claude evaluates your resume against a JD and returns a 1–10 score, strengths, gaps, and ATS keywords
 - **Outreach drafting** — generates a LinkedIn connection note, InMail, and email for each contact
+- **Email sending** — sends outreach and thank-you emails via a local SMTP relay; tracks Day 0/3/7 follow-up cadence
+- **Thank-you drafting** — AI writes post-interview thank-you emails personalized by key moment and fit point
 - **Resume tailoring** — rewrites your bullets to mirror JD language without changing any metrics
 - **Interview prep** — behavioral and technical questions, company briefing, and questions to ask
 - **Follow-up queue** — surfaces contacts due for Day 3 and Day 7 follow-ups
 - **Daily digest** — AI-generated briefing: today's priorities, follow-up alerts, and pipeline health
+- **RSS/Atom job feed** — polls configured job board feeds, deduplicates by URL, and auto-adds new postings as Prospects
+- **Background scheduler** — runs digest, stale-record check, and feed poll automatically each day at a configurable time
+- **Metrics dashboard** — stage funnel, fit-score distribution, source and tier breakdowns, outreach response rates
 - **Local web dashboard** — filterable opportunity list, contact tracking, activity log, stage advancement
-- **CSV export** — one command dumps the full pipeline to a dated CSV
+- **CSV export** — one click (or command) dumps the full pipeline to a dated CSV
 
 ---
 
@@ -26,7 +31,7 @@ A personal job search pipeline manager built on SQLite, with a Click CLI, a loca
 pip install -r requirements.txt
 ```
 
-Copy `.env.template` to `.env` and fill in your key:
+Copy `.env.template` to `.env` and fill in your values:
 
 ```bash
 cp .env.template .env
@@ -34,11 +39,17 @@ cp .env.template .env
 
 ```
 ANTHROPIC_API_KEY=your_key_here
-DB_PATH=jobsearch.db          # optional, defaults to jobsearch.db
+DB_PATH=jobsearch.db              # optional, defaults to jobsearch.db
 RESUME_CACHE_PATH=.resume_cache.txt  # optional
+
+# SMTP relay (defaults shown — override if your relay differs)
+SMTP_HOST=192.168.1.24
+SMTP_PORT=25
+SMTP_FROM=noreply@example.com
+SENDER_NAME=Your Name
 ```
 
-The database is created automatically on first run.
+The database is created automatically on first run. App settings (scheduler time, feed URLs, SMTP overrides) are persisted to `app_settings.json` via the Settings page.
 
 ---
 
@@ -95,12 +106,27 @@ python main.py dashboard
 # Opens at http://127.0.0.1:5001
 ```
 
-The dashboard is local-only (binds to 127.0.0.1) with no authentication. It provides:
+The dashboard is local-only (binds to 127.0.0.1) with no authentication. The background scheduler starts automatically when the dashboard runs.
 
-- **/** — Today's queue, pipeline stage counts, stale opportunity alerts
-- **/opportunities** — Full opportunity list with stage/tier/job-family filters
-- **/opportunity/\<id\>** — Detail view: JD keywords, fit summary, contacts, activity log, stage advancement
-- **/contacts** — All contacts with response-status color coding and follow-up highlights
+| Route | What it does |
+|---|---|
+| `/` | Today's queue, pipeline stage counts, stale opportunity alerts |
+| `/opportunities` | Full opportunity list with stage/tier/job-family filters |
+| `/opportunity/<id>` | Detail view: JD keywords, fit summary, contacts, activity log, stage advancement, AI scoring, interview prep |
+| `/add-job` | Two-step form — paste a URL or JD text → AI extracts fields → confirm and save |
+| `/contacts` | All contacts with response-status color coding and follow-up highlights |
+| `/metrics` | Pipeline funnel, fit-score distribution, source/tier breakdowns, outreach response rates |
+| `/settings` | Edit resume, set daily digest time, configure SMTP relay, manage RSS feed URLs and keyword filters |
+| `/export` | Download full pipeline as a CSV file |
+
+### Opportunity detail actions (AJAX)
+
+- **Score Fit** — runs AI fit analysis against the cached resume and updates the score in-page
+- **Interview Prep** — generates prep materials (displayed inline, not stored)
+- **Draft Outreach** — writes LinkedIn note + email copy for a contact
+- **Send Email** — sends outreach or thank-you via SMTP relay, logs Day 0
+- **Draft Thank You** — AI writes a post-interview thank-you (provide key moment + fit point)
+- **Mark as Sent** — logs outreach without sending (for messages sent outside the app)
 
 ---
 
@@ -126,6 +152,19 @@ Each stage transition recalculates `next_action_date` and logs to the activity t
 
 ---
 
+## RSS Job Feeds
+
+Configure feed URLs and keyword filters in **Settings → Job Feeds**. On each scheduled poll (and via the dashboard's manual "Poll Now" button), the system:
+
+1. Fetches each RSS/Atom feed URL
+2. Filters titles against your keyword list (blank = import everything)
+3. Deduplicates by posting URL — existing entries are never re-imported
+4. Creates new Prospect opportunities with source set to `Job Feed`
+
+No AI calls are made during ingestion. Run Score Fit from the opportunity page once you decide a posting is worth pursuing.
+
+---
+
 ## Project Structure
 
 ```
@@ -140,17 +179,20 @@ Each stage transition recalculates `next_action_date` and logs to the activity t
 │   └── activity.py
 │
 ├── modules/             Business logic
-│   ├── ai_engine.py     All Anthropic API calls
+│   ├── ai_engine.py     All Anthropic API calls (score, outreach, prep, tailor, digest, thank-you)
 │   ├── workflow.py      Stage transitions, follow-up queue, stale alerts
 │   ├── ingester.py      JD parsing from URL or pasted text
-│   └── digest.py        Daily digest generation
+│   ├── digest.py        Daily digest generation
+│   ├── mailer.py        SMTP email sending
+│   ├── job_feed.py      RSS/Atom feed polling and deduplication
+│   └── scheduler.py     Background thread: daily digest, stale check, feed poll
 │
 ├── db/
 │   ├── database.py      SQLite connection and query wrapper
 │   └── schema.sql       Tables, triggers, and views
 │
 ├── web/
-│   ├── app.py           Flask app initialization
+│   ├── app.py           Flask app initialization + scheduler startup
 │   └── routes.py        Dashboard route handlers
 │
 ├── templates/           Jinja2 HTML templates
@@ -158,7 +200,10 @@ Each stage transition recalculates `next_action_date` and logs to the activity t
 │   ├── dashboard.html
 │   ├── opportunities.html
 │   ├── opportunity.html
-│   └── contacts.html
+│   ├── contacts.html
+│   ├── add_job.html
+│   ├── metrics.html
+│   └── settings.html
 │
 └── tests/
     ├── test_ai_engine.py
@@ -182,4 +227,5 @@ Tests use a mocked Anthropic client and an in-memory SQLite database — no toke
 - Resume text is cached locally in `.resume_cache.txt` and never written to the database
 - The Anthropic API key is loaded from `.env` and never logged or committed
 - The database is a local SQLite file (`jobsearch.db` by default)
-- `.resume_cache.txt` and `.env` should be added to `.gitignore` if you version-control this directory
+- App settings (digest time, feed URLs, SMTP config) are stored in `app_settings.json`
+- `.resume_cache.txt`, `.env`, and `app_settings.json` should be added to `.gitignore` if you version-control this directory
