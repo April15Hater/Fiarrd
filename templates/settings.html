@@ -15,6 +15,31 @@
 {% endif %}
 
 <div class="card" style="max-width:800px;margin-bottom:20px">
+  <h2>Job Feeds</h2>
+  <p style="font-size:13px;color:#64748b;margin-bottom:16px">
+    RSS/Atom feed URLs to poll daily for new job postings. New postings are added as
+    <strong style="color:#fde68a">Prospect</strong> opportunities — no AI calls at ingest time.
+    Run Score Fit from the opportunity page once you decide a posting is worth pursuing.
+  </p>
+  <form method="POST" action="/settings">
+    <input type="hidden" name="section" value="feeds">
+    <div class="form-group">
+      <label>RSS / Atom Feed URLs (one per line)</label>
+      <textarea name="feed_urls" rows="5" placeholder="https://www.indeed.com/rss?q=analytics+manager&l=Charlotte+NC&#10;https://remoteok.com/remote-jobs.rss&#10;https://weworkremotely.com/categories/remote-data-science-jobs.rss">{{ feed_urls_text }}</textarea>
+    </div>
+    <div class="form-group">
+      <label>Keyword Filter (comma-separated — only import titles matching at least one)</label>
+      <input type="text" name="feed_keywords" value="{{ feed_keywords_text }}" placeholder="analytics manager, data manager, BI manager, decision science">
+    </div>
+    <div style="display:flex;gap:12px;align-items:center">
+      <button type="submit" class="btn btn-primary">Save Feeds</button>
+      <button type="button" class="btn btn-ghost" id="poll-btn" onclick="pollNow()">Poll Now</button>
+      <span id="poll-result" style="font-size:13px;color:#64748b"></span>
+    </div>
+  </form>
+</div>
+
+<div class="card" style="max-width:800px;margin-bottom:20px">
   <h2>Email / SMTP</h2>
   <p style="font-size:13px;color:#64748b;margin-bottom:16px">
     LAN relay settings used when sending outreach and thank-you emails from the web UI.
@@ -78,4 +103,32 @@
   </form>
 </div>
 
+<script>
+function pollNow() {
+  const btn = document.getElementById('poll-btn');
+  const result = document.getElementById('poll-result');
+  btn.disabled = true;
+  btn.textContent = 'Polling...';
+  result.textContent = '';
+  fetch('/run-feed-poll', {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.textContent = 'Poll Now';
+      if (data.error) {
+        result.style.color = '#ef4444';
+        result.textContent = data.error;
+        return;
+      }
+      result.style.color = data.added > 0 ? '#10b981' : '#64748b';
+      result.textContent = `Done — ${data.added} added, ${data.skipped} skipped, ${data.errors} errors.`;
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = 'Poll Now';
+      result.style.color = '#ef4444';
+      result.textContent = 'Request failed.';
+    });
+}
+</script>
 {% endblock %}

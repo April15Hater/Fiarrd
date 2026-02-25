@@ -440,6 +440,7 @@ function draftOutreach(cId, btn) {
     if (CONTACT_HAS_EMAIL[cId]) {
       html += '<button id="send-outreach-' + cId + '" onclick="sendEmail(' + cId + ', \'outreach\', this)" class="btn btn-primary btn-sm" style="font-size:11px;padding:2px 8px">Send Email</button>';
     }
+    html += '<button id="mark-sent-' + cId + '" onclick="markSent(' + cId + ', this)" class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px;border:1px solid #475569">Mark as Sent</button>';
     html += '</div>';
     html += '</div>';
     const res = document.getElementById('outreach-result-' + cId);
@@ -571,6 +572,32 @@ function sendEmail(cId, type, btn) {
     btn.textContent = orig;
     alert('Request failed. Check the server logs.');
   });
+}
+
+function markSent(cId, btn) {
+  if (!confirm('Mark outreach as sent? This logs today as Day 0 for this contact.')) return;
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Logging...';
+  fetch('/contact/' + cId + '/mark-outreach-sent', {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        btn.disabled = false;
+        btn.textContent = orig;
+        alert('Error: ' + data.error);
+        return;
+      }
+      btn.textContent = 'Day 0 Logged ✓';
+      btn.style.background = '#10b981';
+      btn.style.color = '#fff';
+      btn.style.border = 'none';
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = orig;
+      alert('Request failed. Check the server logs.');
+    });
 }
 </script>
 {% endblock %}

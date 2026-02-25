@@ -40,6 +40,31 @@ def register_routes(app):
             stage_order=STAGE_ORDER,
         )
 
+    @app.route("/run-feed-poll", methods=["POST"])
+    def run_feed_poll():
+        from modules.job_feed import poll_feeds, load_feed_config
+        cfg = load_feed_config()
+        if not cfg["urls"]:
+            return jsonify({"error": "No feed URLs configured. Add RSS URLs in Settings → Job Feeds."}), 400
+        result = poll_feeds(cfg["urls"], cfg["keywords"])
+        return jsonify(result)
+
+    @app.route("/contact/<int:contact_id>/mark-outreach-sent", methods=["POST"])
+    def mark_outreach_sent(contact_id):
+        contact = get_contact(contact_id)
+        if not contact:
+            return jsonify({"error": "Contact not found"}), 404
+        today_str = date.today().isoformat()
+        if not contact.outreach_day0:
+            update_contact(contact_id, outreach_day0=today_str)
+        log_activity(
+            activity_type="Outreach Sent",
+            description=f"Outreach marked as sent to {contact.full_name}",
+            opportunity_id=contact.opportunity_id,
+            contact_id=contact_id,
+        )
+        return jsonify({"ok": True, "day0": today_str})
+
     @app.route("/run-digest", methods=["POST"])
     def run_digest():
         from modules.digest import run_daily_digest
@@ -424,6 +449,8 @@ def register_routes(app):
             except Exception:
                 pass
         digest_time = app_settings.get("digest_time", "08:00")
+        feed_urls_text = app_settings.get("feed_urls", "")
+        feed_keywords_text = app_settings.get("feed_keywords", "")
         smtp_host = app_settings.get("smtp_host", SMTP_HOST)
         smtp_port = app_settings.get("smtp_port", str(SMTP_PORT))
         smtp_from = app_settings.get("smtp_from", SMTP_FROM)
@@ -440,7 +467,18 @@ def register_routes(app):
         if request.method == "POST":
             section = request.form.get("section", "resume")
 
-            if section == "smtp":
+            if section == "feeds":
+                feed_urls_text = request.form.get("feed_urls", "").strip()
+                feed_keywords_text = request.form.get("feed_keywords", "").strip()
+                try:
+                    app_settings["feed_urls"] = feed_urls_text
+                    app_settings["feed_keywords"] = feed_keywords_text
+                    with open(APP_SETTINGS_PATH, "w", encoding="utf-8") as f:
+                        json.dump(app_settings, f, indent=2)
+                    return redirect(url_for("settings") + "?saved=1")
+                except Exception as e:
+                    error = f"Could not save feed settings: {e}"
+            elif section == "smtp":
                 smtp_host = request.form.get("smtp_host", "").strip() or SMTP_HOST
                 smtp_port = request.form.get("smtp_port", "").strip() or str(SMTP_PORT)
                 smtp_from = request.form.get("smtp_from", "").strip() or SMTP_FROM
@@ -482,6 +520,7 @@ def register_routes(app):
             resume_path=RESUME_CACHE_PATH, digest_time=digest_time,
             smtp_host=smtp_host, smtp_port=smtp_port,
             smtp_from=smtp_from, sender_name=sender_name,
+            feed_urls_text=feed_urls_text, feed_keywords_text=feed_keywords_text,
         )
 
     @app.route("/metrics")

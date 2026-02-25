@@ -24,6 +24,20 @@ def _load_digest_time() -> str:
         return DEFAULT_DIGEST_TIME
 
 
+def _run_feed_poll():
+    try:
+        from modules.job_feed import poll_feeds, load_feed_config
+        cfg = load_feed_config()
+        if not cfg["urls"]:
+            return
+        result = poll_feeds(cfg["urls"], cfg["keywords"])
+        print(f"[scheduler] Feed poll: {result['added']} added, {result['skipped']} skipped, {result['errors']} errors.")
+        for title in result.get("new", []):
+            print(f"  + {title}")
+    except Exception as e:
+        print(f"[scheduler] Feed poll error: {e}")
+
+
 def _run_stale_check():
     stale = flag_stale_records(days_stale=7)
     if stale:
@@ -45,7 +59,8 @@ def reschedule(new_time: str):
     schedule.clear()
     schedule.every().day.at(new_time).do(run_daily_digest, write_log=True)
     schedule.every().day.at(new_time).do(_run_stale_check)
-    print(f"[scheduler] Rescheduled — digest + stale check at {new_time} daily.")
+    schedule.every().day.at(new_time).do(_run_feed_poll)
+    print(f"[scheduler] Rescheduled — digest + stale check + feed poll at {new_time} daily.")
 
 
 def start_scheduler():
@@ -53,6 +68,7 @@ def start_scheduler():
     digest_time = _load_digest_time()
     schedule.every().day.at(digest_time).do(run_daily_digest, write_log=True)
     schedule.every().day.at(digest_time).do(_run_stale_check)
+    schedule.every().day.at(digest_time).do(_run_feed_poll)
     t = threading.Thread(target=_scheduler_loop, daemon=True, name="JobSearchScheduler")
     t.start()
-    print(f"[scheduler] Started — digest + stale check scheduled at {digest_time} daily.")
+    print(f"[scheduler] Started — digest + stale check + feed poll scheduled at {digest_time} daily.")
