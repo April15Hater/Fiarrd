@@ -34,6 +34,11 @@ def _is_section_header(line: str) -> bool:
 # Resume
 # ---------------------------------------------------------------------------
 
+def _sanitize(text: str) -> str:
+    """Strip XML-illegal control characters (keeps tab, newline, CR)."""
+    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text or "")
+
+
 def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
     """
     Build a resume .docx from resume_text.
@@ -44,6 +49,8 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
     from docx import Document
     from docx.shared import Pt, Inches, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    resume_text = _sanitize(resume_text)
 
     if template_path and os.path.isfile(template_path):
         return _inject_into_template(resume_text, template_path, "[RESUME_CONTENT]")
@@ -127,6 +134,8 @@ def build_cover_letter_docx(cover_letter_text: str, template_path: str = None) -
     """
     from docx import Document
     from docx.shared import Pt, Inches
+
+    cover_letter_text = _sanitize(cover_letter_text)
 
     if template_path and os.path.isfile(template_path):
         return _inject_into_template(cover_letter_text, template_path, "[COVER_LETTER_CONTENT]")

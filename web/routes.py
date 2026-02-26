@@ -8,7 +8,7 @@ import os
 import re
 from datetime import date, timedelta
 
-from flask import render_template, request, redirect, url_for, jsonify, flash, make_response
+from flask import render_template, request, redirect, url_for, jsonify, flash, make_response, send_file
 
 from models.opportunity import list_opportunities, get_opportunity, update_opportunity, create_opportunity
 from models.contact import list_contacts, get_contact, update_contact, create_contact
@@ -260,41 +260,51 @@ def register_routes(app):
 
     @app.route("/opportunity/<int:opp_id>/export-resume")
     def export_resume_docx(opp_id):
-        from modules.docx_builder import build_resume_docx
-        opp = get_opportunity(opp_id)
-        if not opp or not opp.tailored_resume:
-            return redirect(url_for("opportunity_detail", opp_id=opp_id))
-        settings = _load_app_settings()
-        template_path = settings.get("resume_template_path", "").strip() or None
-        docx_bytes = build_resume_docx(opp.tailored_resume, template_path)
-        safe_company = re.sub(r"[^\w\-]", "_", opp.company or "company")
-        safe_role = re.sub(r"[^\w\-]", "_", opp.role_title or "role")
-        filename = f"{safe_company}_{safe_role}_resume.docx"
-        resp = make_response(docx_bytes)
-        resp.headers["Content-Type"] = (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-        resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
-        return resp
+        import traceback
+        try:
+            from modules.docx_builder import build_resume_docx
+            opp = get_opportunity(opp_id)
+            if not opp or not opp.tailored_resume:
+                return redirect(url_for("opportunity_detail", opp_id=opp_id))
+            settings = _load_app_settings()
+            template_path = settings.get("resume_template_path", "").strip() or None
+            docx_bytes = build_resume_docx(opp.tailored_resume, template_path)
+            safe_company = re.sub(r"[^\w\-]", "_", opp.company or "company")
+            safe_role = re.sub(r"[^\w\-]", "_", opp.role_title or "role")
+            filename = f"{safe_company}_{safe_role}_resume.docx"
+            return send_file(
+                io.BytesIO(docx_bytes),
+                mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                as_attachment=True,
+                download_name=filename,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            return f"<pre>Export failed: {type(e).__name__}: {e}\n\n{traceback.format_exc()}</pre>", 500
 
     @app.route("/opportunity/<int:opp_id>/export-cover-letter")
     def export_cover_letter_docx(opp_id):
-        from modules.docx_builder import build_cover_letter_docx
-        opp = get_opportunity(opp_id)
-        if not opp or not opp.cover_letter:
-            return redirect(url_for("opportunity_detail", opp_id=opp_id))
-        settings = _load_app_settings()
-        template_path = settings.get("cover_letter_template_path", "").strip() or None
-        docx_bytes = build_cover_letter_docx(opp.cover_letter, template_path)
-        safe_company = re.sub(r"[^\w\-]", "_", opp.company or "company")
-        safe_role = re.sub(r"[^\w\-]", "_", opp.role_title or "role")
-        filename = f"{safe_company}_{safe_role}_cover_letter.docx"
-        resp = make_response(docx_bytes)
-        resp.headers["Content-Type"] = (
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        )
-        resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
-        return resp
+        import traceback
+        try:
+            from modules.docx_builder import build_cover_letter_docx
+            opp = get_opportunity(opp_id)
+            if not opp or not opp.cover_letter:
+                return redirect(url_for("opportunity_detail", opp_id=opp_id))
+            settings = _load_app_settings()
+            template_path = settings.get("cover_letter_template_path", "").strip() or None
+            docx_bytes = build_cover_letter_docx(opp.cover_letter, template_path)
+            safe_company = re.sub(r"[^\w\-]", "_", opp.company or "company")
+            safe_role = re.sub(r"[^\w\-]", "_", opp.role_title or "role")
+            filename = f"{safe_company}_{safe_role}_cover_letter.docx"
+            return send_file(
+                io.BytesIO(docx_bytes),
+                mimetype="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                as_attachment=True,
+                download_name=filename,
+            )
+        except Exception as e:
+            traceback.print_exc()
+            return f"<pre>Export failed: {type(e).__name__}: {e}\n\n{traceback.format_exc()}</pre>", 500
 
     @app.route("/opportunity/<int:opp_id>/add-contact", methods=["POST"])
     def add_contact_route(opp_id):
