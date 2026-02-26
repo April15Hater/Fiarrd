@@ -18,10 +18,10 @@ A personal job search pipeline manager built on SQLite, with a Click CLI, a loca
 - **Interview prep** — behavioral and technical questions, company briefing, and questions to ask
 - **Follow-up queue** — surfaces contacts due for Day 3 and Day 7 follow-ups
 - **Daily digest** — AI-generated briefing: today's priorities, follow-up alerts, and pipeline health
-- **RSS/Atom job feed** — polls configured job board feeds, deduplicates by URL, and auto-adds new postings as Prospects
+- **RSS/Atom job feed** — polls configured job board feeds, deduplicates by URL, auto-adds new postings as Prospects; optional AI auto-scoring and minimum-score filter discard low-match postings before they enter the pipeline
 - **Background scheduler** — runs digest, stale-record check, and feed poll automatically each day at a configurable time
 - **Metrics dashboard** — stage funnel, fit-score distribution, source and tier breakdowns, outreach response rates
-- **Local web dashboard** — filterable opportunity list, contact tracking, activity log, stage management
+- **Local web dashboard** — filterable opportunity list (closed excluded by default), contact tracking, activity log, stage management, bulk stage updates
 - **CSV export** — one click (or command) dumps the full pipeline to a dated CSV
 
 ---
@@ -114,17 +114,18 @@ The dashboard is local-only (binds to 127.0.0.1) with no authentication. The bac
 | Route | What it does |
 |---|---|
 | `/` | Today's queue, pipeline stage counts, stale opportunity alerts |
-| `/opportunities` | Full opportunity list with stage/tier/job-family filters |
+| `/opportunities` | Full opportunity list with stage/tier/job-family filters; closed excluded by default — toggle "Show Closed" to include them; select rows for bulk stage updates |
 | `/opportunity/<id>` | Detail view: JD keywords, fit summary, contacts, activity log, stage management, AI scoring, interview prep, tailored resume |
 | `/add-job` | Two-step form — paste a URL or JD text → AI extracts fields → confirm and save |
 | `/contacts` | All contacts with response-status color coding and follow-up highlights |
 | `/metrics` | Pipeline funnel, fit-score distribution, source/tier breakdowns, outreach response rates |
-| `/settings` | Edit resume, configure document templates, set daily digest time, configure SMTP relay, manage RSS feed URLs and keyword filters |
+| `/settings` | Edit resume, configure document templates, set daily digest time, configure SMTP relay, manage RSS feed URLs/keyword filters/auto-score/min-score threshold |
 | `/export` | Download full pipeline as a CSV file |
 
 ### Opportunity detail actions (AJAX)
 
 - **Score Fit** — runs AI fit analysis against the cached resume and updates the score in-page
+- **Score Unscored ✦** _(pipeline list)_ — batch-scores all opportunities that are missing a fit score in one click
 - **Generate Tailored Resume** — rewrites your full resume for this specific role; result is saved and shown on future page loads
 - **Export Resume DOCX** — downloads the tailored resume as a formatted .docx (uses custom template if configured)
 - **Generate Cover Letter** — AI writes a role-specific cover letter; saved per opportunity
@@ -184,8 +185,17 @@ Configure feed URLs and keyword filters in **Settings → Job Feeds**. On each s
 2. Filters titles against your keyword list (blank = import everything)
 3. Deduplicates by posting URL — existing entries are never re-imported
 4. Creates new Prospect opportunities with source set to `Other`
+5. _(Optional)_ Auto-scores each new posting with Claude immediately on import
+6. _(Optional)_ Discards postings whose fit score falls below a configurable minimum threshold
 
-No AI calls are made during ingestion. Run Score Fit or Generate Tailored Resume from the opportunity page once you decide a posting is worth pursuing.
+**Auto-score settings** (Settings → Job Feeds):
+
+| Setting | Default | Description |
+|---|---|---|
+| Auto-score new imports | Off | Run Claude fit scoring on every new feed import |
+| Min. Fit Score to Keep | 0 (keep all) | Postings scoring below this are deleted before entering the pipeline |
+
+When auto-score is off, run **Score Fit** from the opportunity page or use the **Score Unscored ✦** button on the Pipeline page to batch-score all unscored opportunities at once.
 
 ---
 

@@ -100,11 +100,14 @@ def register_routes(app):
         stage_filter = request.args.get("stage")
         tier_filter = request.args.get("tier", type=int)
         family_filter = request.args.get("job_family")
+        include_closed = request.args.get("include_closed") == "1"
+        # Exclude closed by default unless explicitly requested or filtering to Closed
+        exclude_closed = not include_closed and stage_filter != "Closed"
         opps = list_opportunities(
             stage=stage_filter,
             tier=tier_filter,
             job_family=family_filter,
-            exclude_closed=False,
+            exclude_closed=exclude_closed,
         )
         return render_template(
             "opportunities.html",
@@ -114,6 +117,7 @@ def register_routes(app):
             current_stage=stage_filter,
             current_tier=tier_filter,
             current_family=family_filter,
+            include_closed=include_closed,
         )
 
     @app.route("/opportunity/<int:opp_id>")
