@@ -1,6 +1,6 @@
 # Fiarrd
 
-A personal job search pipeline manager built on SQLite, with a Click CLI, a local Flask dashboard, and Claude AI for fit scoring, outreach drafting, interview prep, and resume generation.
+A personal job search pipeline manager built on SQLite, with a Click CLI, a local Flask dashboard, and Claude AI for fit scoring, outreach drafting, interview prep, resume generation, and cover letter writing.
 
 ---
 
@@ -9,6 +9,8 @@ A personal job search pipeline manager built on SQLite, with a Click CLI, a loca
 - **Pipeline tracking** — 8-stage funnel (Prospect → Closed) with tier priorities and job family labels
 - **AI fit scoring** — Claude evaluates your resume against a JD and returns a 1–10 score, strengths, gaps, and ATS keywords
 - **Tailored resume generation** — Claude rewrites your full resume optimized for a specific role and JD; persisted per opportunity
+- **Cover letter generation** — AI writes a concise, role-specific cover letter; persisted per opportunity
+- **DOCX export** — download resume or cover letter as a formatted .docx; supports optional custom .docx templates with `[RESUME_CONTENT]` / `[COVER_LETTER_CONTENT]` placeholders
 - **Outreach drafting** — generates a LinkedIn connection note, InMail, and email for each contact
 - **Email sending** — sends outreach and thank-you emails via a local SMTP relay; tracks Day 0/3/7 follow-up cadence
 - **Thank-you drafting** — AI writes post-interview thank-you emails personalized by key moment and fit point
@@ -117,13 +119,16 @@ The dashboard is local-only (binds to 127.0.0.1) with no authentication. The bac
 | `/add-job` | Two-step form — paste a URL or JD text → AI extracts fields → confirm and save |
 | `/contacts` | All contacts with response-status color coding and follow-up highlights |
 | `/metrics` | Pipeline funnel, fit-score distribution, source/tier breakdowns, outreach response rates |
-| `/settings` | Edit resume, set daily digest time, configure SMTP relay, manage RSS feed URLs and keyword filters |
+| `/settings` | Edit resume, configure document templates, set daily digest time, configure SMTP relay, manage RSS feed URLs and keyword filters |
 | `/export` | Download full pipeline as a CSV file |
 
 ### Opportunity detail actions (AJAX)
 
 - **Score Fit** — runs AI fit analysis against the cached resume and updates the score in-page
 - **Generate Tailored Resume** — rewrites your full resume for this specific role; result is saved and shown on future page loads
+- **Export Resume DOCX** — downloads the tailored resume as a formatted .docx (uses custom template if configured)
+- **Generate Cover Letter** — AI writes a role-specific cover letter; saved per opportunity
+- **Export Cover Letter DOCX** — downloads the cover letter as a .docx
 - **Interview Prep** — generates prep materials (displayed inline, not stored)
 - **Draft Outreach** — writes LinkedIn note + email copy for a contact
 - **Send Email** — sends outreach or thank-you via SMTP relay, logs Day 0
@@ -154,6 +159,23 @@ Each stage transition recalculates `next_action_date` and logs to the activity t
 
 ---
 
+## Document Templates
+
+Resume and cover letter exports generate a `.docx` file in two modes:
+
+**Built-in format (default):** A clean document is built from scratch with consistent margins, section headers in blue, and 10pt body text. No configuration needed.
+
+**Custom template:** Place a `.docx` file containing the placeholder text on its own line, then set the path in **Settings → Document Templates**.
+
+| Export type | Placeholder text |
+|---|---|
+| Resume | `[RESUME_CONTENT]` |
+| Cover letter | `[COVER_LETTER_CONTENT]` |
+
+The app opens the template, finds the placeholder paragraph, replaces it with the generated content, and returns the file as a download. Everything else in the template (headers, footers, contact info, fonts) is preserved exactly.
+
+---
+
 ## RSS Job Feeds
 
 Configure feed URLs and keyword filters in **Settings → Job Feeds**. On each scheduled poll (and via the dashboard's manual "Poll Now" button), the system:
@@ -181,7 +203,8 @@ No AI calls are made during ingestion. Run Score Fit or Generate Tailored Resume
 │   └── activity.py
 │
 ├── modules/             Business logic
-│   ├── ai_engine.py     All Anthropic API calls (score, outreach, prep, tailor, digest, thank-you, resume)
+│   ├── ai_engine.py     All Anthropic API calls (score, outreach, prep, tailor, digest, thank-you, resume, cover letter)
+│   ├── docx_builder.py  Build .docx exports for resume and cover letter (scratch or template)
 │   ├── workflow.py      Stage transitions, follow-up queue, stale alerts
 │   ├── ingester.py      JD parsing from URL or pasted text
 │   ├── digest.py        Daily digest generation
