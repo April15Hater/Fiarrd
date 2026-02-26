@@ -134,6 +134,12 @@ def list_opportunities(
     return [Opportunity.from_row(r) for r in rows] if rows else []
 
 
+def delete_opportunity(opp_id: int) -> None:
+    """Delete an opportunity and its associated activity log entries."""
+    execute_query("DELETE FROM activity_log WHERE opportunity_id = ?", (opp_id,))
+    execute_query("DELETE FROM opportunities WHERE id = ?", (opp_id,))
+
+
 def search_opportunities(query: str) -> list[Opportunity]:
     """Full-text search across company, role_title, notes."""
     like = f"%{query}%"

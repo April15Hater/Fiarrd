@@ -58,7 +58,19 @@ def register_routes(app):
         cfg = load_feed_config()
         if not cfg["urls"]:
             return jsonify({"error": "No feed URLs configured. Add RSS URLs in Settings → Job Feeds."}), 400
-        result = poll_feeds(cfg["urls"], cfg["keywords"])
+        resume_text = ""
+        if cfg.get("auto_score") and os.path.exists(RESUME_CACHE_PATH):
+            try:
+                resume_text = open(RESUME_CACHE_PATH, encoding="utf-8").read().strip()
+            except Exception:
+                pass
+        result = poll_feeds(
+            cfg["urls"],
+            cfg["keywords"],
+            auto_score=cfg.get("auto_score", False),
+            min_score=cfg.get("min_score", 0),
+            resume_text=resume_text,
+        )
         return jsonify(result)
 
     @app.route("/contact/<int:contact_id>/mark-outreach-sent", methods=["POST"])
@@ -142,6 +154,57 @@ def register_routes(app):
         if new_stage:
             advance_stage(opp_id, new_stage, note=note or None, close_reason=close_reason)
         return redirect(url_for("opportunity_detail", opp_id=opp_id))
+
+    @app.route("/opportunities/score-unscored", methods=["POST"])
+    def score_unscored():
+        from modules.ai_engine import score_fit
+        from db.database import execute_query
+        if not os.path.exists(RESUME_CACHE_PATH):
+            return jsonify({"error": "No resume cached. Save your resume in Settings first."}), 400
+        resume_text = open(RESUME_CACHE_PATH, encoding="utf-8").read().strip()
+        if not resume_text:
+            return jsonify({"error": "Resume cache is empty. Save your resume in Settings."}), 400
+        rows = execute_query(
+            "SELECT id, jd_raw FROM opportunities WHERE fit_score IS NULL AND jd_raw IS NOT NULL AND jd_raw != ''",
+            fetch="all",
+        )
+        if not rows:
+            return jsonify({"scored": 0, "skipped": 0, "message": "All opportunities already have a fit score."})
+        scored = skipped = errors = 0
+        for row in rows:
+            opp_id, jd_raw = row["id"], row["jd_raw"]
+            if not jd_raw or not jd_raw.strip():
+                skipped += 1
+                continue
+            try:
+                result = score_fit(resume_text, jd_raw, opportunity_id=opp_id)
+                update_opportunity(opp_id, fit_score=result["fit_score"], ai_fit_summary=json.dumps(result))
+                log_activity(
+                    activity_type="AI Action",
+                    description=f"Fit scored (batch): {result['fit_score']}/10",
+                    opportunity_id=opp_id,
+                )
+                scored += 1
+            except Exception as e:
+                errors += 1
+        return jsonify({"scored": scored, "skipped": skipped, "errors": errors})
+
+    @app.route("/opportunities/bulk-advance", methods=["POST"])
+    def bulk_advance():
+        opp_ids = [int(x) for x in request.form.getlist("opp_ids[]") if x.strip().isdigit()]
+        new_stage = request.form.get("new_stage", "").strip()
+        note = request.form.get("note", "").strip() or None
+        close_reason = request.form.get("close_reason") or None
+        if not opp_ids or not new_stage:
+            return jsonify({"error": "No opportunities or stage selected."}), 400
+        updated = 0
+        for opp_id in opp_ids:
+            try:
+                advance_stage(opp_id, new_stage, note=note, close_reason=close_reason)
+                updated += 1
+            except Exception:
+                pass
+        return jsonify({"updated": updated, "total": len(opp_ids)})
 
     @app.route("/opportunity/<int:opp_id>/note", methods=["POST"])
     def add_note(opp_id):
@@ -554,6 +617,11 @@ def register_routes(app):
         digest_time = app_settings.get("digest_time", "08:00")
         feed_urls_text = app_settings.get("feed_urls", "")
         feed_keywords_text = app_settings.get("feed_keywords", "")
+        feed_auto_score = bool(app_settings.get("feed_auto_score", False))
+        try:
+            feed_min_score = int(app_settings.get("feed_min_score", 0))
+        except (TypeError, ValueError):
+            feed_min_score = 0
         smtp_host = app_settings.get("smtp_host", SMTP_HOST)
         smtp_port = app_settings.get("smtp_port", str(SMTP_PORT))
         smtp_from = app_settings.get("smtp_from", SMTP_FROM)
@@ -575,9 +643,17 @@ def register_routes(app):
             if section == "feeds":
                 feed_urls_text = request.form.get("feed_urls", "").strip()
                 feed_keywords_text = request.form.get("feed_keywords", "").strip()
+                feed_auto_score = request.form.get("feed_auto_score") == "1"
+                try:
+                    feed_min_score = int(request.form.get("feed_min_score", "0") or "0")
+                    feed_min_score = max(0, min(10, feed_min_score))
+                except (TypeError, ValueError):
+                    feed_min_score = 0
                 try:
                     app_settings["feed_urls"] = feed_urls_text
                     app_settings["feed_keywords"] = feed_keywords_text
+                    app_settings["feed_auto_score"] = feed_auto_score
+                    app_settings["feed_min_score"] = feed_min_score
                     with open(APP_SETTINGS_PATH, "w", encoding="utf-8") as f:
                         json.dump(app_settings, f, indent=2)
                     return redirect(url_for("settings") + "?saved=1")
@@ -637,6 +713,7 @@ def register_routes(app):
             smtp_host=smtp_host, smtp_port=smtp_port,
             smtp_from=smtp_from, sender_name=sender_name,
             feed_urls_text=feed_urls_text, feed_keywords_text=feed_keywords_text,
+            feed_auto_score=feed_auto_score, feed_min_score=feed_min_score,
             resume_template_path=resume_template_path,
             cover_letter_template_path=cover_letter_template_path,
         )

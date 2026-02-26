@@ -4,7 +4,11 @@
 
 <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
   <h1 style="margin:0">Pipeline</h1>
-  <a href="/export" class="btn btn-ghost btn-sm" style="white-space:nowrap">Export CSV ↓</a>
+  <div style="display:flex;gap:10px;align-items:center">
+    <span id="score-result" style="font-size:13px;color:#64748b"></span>
+    <button class="btn btn-ghost btn-sm" id="score-btn" onclick="scoreUnscored()" style="white-space:nowrap">Score Unscored ✦</button>
+    <a href="/export" class="btn btn-ghost btn-sm" style="white-space:nowrap">Export CSV ↓</a>
+  </div>
 </div>
 
 <!-- Filters -->
@@ -43,9 +47,12 @@
 
 {% if opportunities %}
 <div class="card" style="padding:0;overflow:hidden">
-  <table>
+  <table id="opp-table">
     <thead>
       <tr>
+        <th style="width:36px;padding:10px 8px 10px 16px">
+          <input type="checkbox" id="select-all" title="Select all" onchange="toggleAll(this.checked)">
+        </th>
         <th>Company</th>
         <th>Role</th>
         <th>Stage</th>
@@ -60,6 +67,9 @@
     <tbody>
       {% for opp in opportunities %}
       <tr>
+        <td style="padding:10px 8px 10px 16px">
+          <input type="checkbox" class="opp-cb" value="{{ opp.id }}" onchange="onCheckChange()">
+        </td>
         <td><a href="/opportunity/{{ opp.id }}">{{ opp.company }}</a></td>
         <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ opp.role_title }}</td>
         <td>
@@ -86,9 +96,105 @@
     </tbody>
   </table>
 </div>
+
+<!-- Bulk action bar (hidden until rows are selected) -->
+<div id="bulk-bar" style="display:none;position:fixed;bottom:24px;left:50%;transform:translateX(-50%);
+     background:#1e293b;border:1px solid #334155;border-radius:10px;padding:12px 20px;
+     display:flex;align-items:center;gap:12px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:100">
+  <span id="bulk-count" style="font-size:13px;color:#94a3b8;white-space:nowrap">0 selected</span>
+  <select id="bulk-stage" style="min-width:160px">
+    <option value="">Move to stage…</option>
+    {% for s in stage_order %}
+    <option value="{{ s }}">{{ s }}</option>
+    {% endfor %}
+    <option value="Closed">Closed</option>
+  </select>
+  <button class="btn btn-primary btn-sm" onclick="bulkAdvance()">Update</button>
+  <span id="bulk-result" style="font-size:13px;color:#64748b"></span>
+  <button class="btn btn-ghost btn-sm" onclick="clearAll()">✕</button>
+</div>
 {% else %}
 <div class="card empty-state">
   No opportunities found. Add your first with: <code>python main.py add-job</code>
 </div>
 {% endif %}
+
+<script>
+function scoreUnscored() {
+  const btn = document.getElementById('score-btn');
+  const result = document.getElementById('score-result');
+  btn.disabled = true;
+  btn.textContent = 'Scoring…';
+  result.textContent = '';
+  fetch('/opportunities/score-unscored', {method: 'POST'})
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.textContent = 'Score Unscored ✦';
+      if (data.error) {
+        result.style.color = '#ef4444';
+        result.textContent = data.error;
+        return;
+      }
+      result.style.color = data.scored > 0 ? '#10b981' : '#64748b';
+      result.textContent = data.message || `Scored ${data.scored}` + (data.errors ? `, ${data.errors} failed` : '') + '.';
+      if (data.scored > 0) setTimeout(() => location.reload(), 1000);
+    })
+    .catch(() => {
+      btn.disabled = false;
+      btn.textContent = 'Score Unscored ✦';
+      result.style.color = '#ef4444';
+      result.textContent = 'Request failed.';
+    });
+}
+function getSelected() {
+  return Array.from(document.querySelectorAll('.opp-cb:checked')).map(cb => cb.value);
+}
+function toggleAll(checked) {
+  document.querySelectorAll('.opp-cb').forEach(cb => cb.checked = checked);
+  onCheckChange();
+}
+function clearAll() {
+  document.querySelectorAll('.opp-cb').forEach(cb => cb.checked = false);
+  document.getElementById('select-all').checked = false;
+  onCheckChange();
+}
+function onCheckChange() {
+  const ids = getSelected();
+  const bar = document.getElementById('bulk-bar');
+  document.getElementById('bulk-count').textContent = ids.length + ' selected';
+  bar.style.display = ids.length > 0 ? 'flex' : 'none';
+}
+function bulkAdvance() {
+  const ids = getSelected();
+  const stage = document.getElementById('bulk-stage').value;
+  const result = document.getElementById('bulk-result');
+  if (!ids.length || !stage) {
+    result.style.color = '#ef4444';
+    result.textContent = ids.length ? 'Pick a stage.' : 'Nothing selected.';
+    return;
+  }
+  result.textContent = 'Updating…';
+  result.style.color = '#64748b';
+  const body = new URLSearchParams();
+  ids.forEach(id => body.append('opp_ids[]', id));
+  body.append('new_stage', stage);
+  fetch('/opportunities/bulk-advance', {method: 'POST', body})
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        result.style.color = '#ef4444';
+        result.textContent = data.error;
+        return;
+      }
+      result.style.color = '#10b981';
+      result.textContent = `Updated ${data.updated}/${data.total}.`;
+      setTimeout(() => location.reload(), 800);
+    })
+    .catch(() => {
+      result.style.color = '#ef4444';
+      result.textContent = 'Request failed.';
+    });
+}
+</script>
 {% endblock %}

@@ -18,8 +18,9 @@
   <h2>Job Feeds</h2>
   <p style="font-size:13px;color:#64748b;margin-bottom:16px">
     RSS/Atom feed URLs to poll daily for new job postings. New postings are added as
-    <strong style="color:#fde68a">Prospect</strong> opportunities — no AI calls at ingest time.
-    Run Score Fit from the opportunity page once you decide a posting is worth pursuing.
+    <strong style="color:#fde68a">Prospect</strong> opportunities. Enable auto-scoring to
+    have Claude score each import immediately, and set a minimum score to automatically
+    discard low-match postings.
   </p>
   <form method="POST" action="/settings">
     <input type="hidden" name="section" value="feeds">
@@ -30,6 +31,21 @@
     <div class="form-group">
       <label>Keyword Filter (comma-separated — only import titles matching at least one)</label>
       <input type="text" name="feed_keywords" value="{{ feed_keywords_text }}" placeholder="analytics manager, data manager, BI manager, decision science">
+    </div>
+    <div style="display:flex;gap:24px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px">
+      <div>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" name="feed_auto_score" value="1" {% if feed_auto_score %}checked{% endif %}
+                 onchange="toggleMinScore(this.checked)">
+          <span>Auto-score new imports with Claude AI</span>
+        </label>
+        <p style="font-size:12px;color:#64748b;margin:4px 0 0 24px">Requires resume to be saved in Resume Cache below.</p>
+      </div>
+      <div id="min-score-group" style="{% if not feed_auto_score %}opacity:0.4;pointer-events:none{% endif %}">
+        <label>Min. Fit Score to Keep (0 = keep all)</label>
+        <input type="number" name="feed_min_score" id="feed-min-score" value="{{ feed_min_score }}"
+               min="0" max="10" style="width:80px">
+      </div>
     </div>
     <div style="display:flex;gap:12px;align-items:center">
       <button type="submit" class="btn btn-primary">Save Feeds</button>
@@ -127,6 +143,11 @@
 </div>
 
 <script>
+function toggleMinScore(checked) {
+  const group = document.getElementById('min-score-group');
+  group.style.opacity = checked ? '1' : '0.4';
+  group.style.pointerEvents = checked ? '' : 'none';
+}
 function pollNow() {
   const btn = document.getElementById('poll-btn');
   const result = document.getElementById('poll-result');
@@ -144,7 +165,10 @@ function pollNow() {
         return;
       }
       result.style.color = data.added > 0 ? '#10b981' : '#64748b';
-      result.textContent = `Done — ${data.added} added, ${data.skipped} skipped, ${data.errors} errors.`;
+      let msg = `Done — ${data.added} added, ${data.skipped} skipped`;
+      if (data.filtered) msg += `, ${data.filtered} filtered`;
+      if (data.errors) msg += `, ${data.errors} errors`;
+      result.textContent = msg + '.';
     })
     .catch(() => {
       btn.disabled = false;

@@ -112,14 +112,23 @@ def _split_title_company(raw: str) -> tuple[str, str]:
 # Main entry point
 # ---------------------------------------------------------------------------
 
-def poll_feeds(feed_urls: list[str], keyword_filter: list[str] | None = None) -> dict:
+def poll_feeds(
+    feed_urls: list[str],
+    keyword_filter: list[str] | None = None,
+    auto_score: bool = False,
+    min_score: int = 0,
+    resume_text: str = "",
+) -> dict:
     """
     Poll all configured feed URLs and add new postings as Prospect opportunities.
-    No AI calls are made — run Score Fit manually from the opportunity page.
 
-    Returns {"added": int, "skipped": int, "errors": int, "new": list[str]}
+    If ``auto_score`` is True and ``resume_text`` is provided, each new posting
+    is immediately scored via Claude.  If ``min_score`` > 0, postings whose
+    fit score falls below the threshold are discarded automatically.
+
+    Returns {"added": int, "skipped": int, "filtered": int, "errors": int, "new": list[str]}
     """
-    from models.opportunity import create_opportunity
+    from models.opportunity import create_opportunity, delete_opportunity, update_opportunity
     from models.activity import log_activity
     from modules.workflow import calculate_next_action
 
@@ -127,7 +136,9 @@ def poll_feeds(feed_urls: list[str], keyword_filter: list[str] | None = None) ->
     next_action, days_out = calculate_next_action("Prospect")
     next_action_date = (date.today() + timedelta(days=days_out)).isoformat()
 
-    added = skipped = errors = 0
+    should_score = auto_score and bool(resume_text.strip())
+
+    added = skipped = errors = filtered = 0
     new_titles: list[str] = []
 
     for feed_url in feed_urls:
@@ -167,6 +178,35 @@ def poll_feeds(feed_urls: list[str], keyword_filter: list[str] | None = None) ->
                     description=f"Auto-added from job feed: {title}",
                     opportunity_id=opp_id,
                 )
+
+                # Auto-score and optionally filter below threshold
+                if should_score:
+                    try:
+                        from modules.ai_engine import score_fit
+                        score_result = score_fit(resume_text, jd_raw, opportunity_id=opp_id)
+                        fit_score = score_result.get("fit_score", 0)
+                        if min_score > 0 and fit_score < min_score:
+                            # Score too low — discard silently
+                            delete_opportunity(opp_id)
+                            filtered += 1
+                            logger.info(
+                                "Feed: filtered '%s' (score %s < threshold %s)",
+                                title, fit_score, min_score,
+                            )
+                            continue
+                        update_opportunity(
+                            opp_id,
+                            fit_score=fit_score,
+                            ai_fit_summary=json.dumps(score_result),
+                        )
+                        log_activity(
+                            activity_type="AI Action",
+                            description=f"Auto-scored on feed import: {fit_score}/10",
+                            opportunity_id=opp_id,
+                        )
+                    except Exception as e:
+                        logger.warning("Feed: auto-score failed for %s: %s", link, e)
+
                 logger.info("Feed: added '%s' from %s", title, link)
                 added += 1
                 new_titles.append(f"{company or '?'} — {role_title or title}")
@@ -174,11 +214,11 @@ def poll_feeds(feed_urls: list[str], keyword_filter: list[str] | None = None) ->
                 logger.warning("Feed: failed to create opportunity for %s: %s", link, e)
                 errors += 1
 
-    return {"added": added, "skipped": skipped, "errors": errors, "new": new_titles}
+    return {"added": added, "skipped": skipped, "filtered": filtered, "errors": errors, "new": new_titles}
 
 
 def load_feed_config() -> dict:
-    """Load feed URLs and keyword filter from app_settings.json."""
+    """Load feed URLs, keyword filter, and auto-score settings from app_settings.json."""
     from config import APP_SETTINGS_PATH
     try:
         if os.path.exists(APP_SETTINGS_PATH):
@@ -186,7 +226,12 @@ def load_feed_config() -> dict:
                 s = json.load(f)
             urls = [u.strip() for u in s.get("feed_urls", "").splitlines() if u.strip()]
             keywords = [k.strip() for k in s.get("feed_keywords", "").split(",") if k.strip()]
-            return {"urls": urls, "keywords": keywords}
+            auto_score = bool(s.get("feed_auto_score", False))
+            try:
+                min_score = int(s.get("feed_min_score", 0))
+            except (TypeError, ValueError):
+                min_score = 0
+            return {"urls": urls, "keywords": keywords, "auto_score": auto_score, "min_score": min_score}
     except Exception:
         pass
-    return {"urls": [], "keywords": []}
+    return {"urls": [], "keywords": [], "auto_score": False, "min_score": 0}
