@@ -1,6 +1,6 @@
-# Job Search Ops
+# Fiarrd
 
-A personal job search pipeline manager built on SQLite, with a Click CLI, a local Flask dashboard, and Claude AI for fit scoring, outreach drafting, and interview prep.
+A personal job search pipeline manager built on SQLite, with a Click CLI, a local Flask dashboard, and Claude AI for fit scoring, outreach drafting, interview prep, and resume generation.
 
 ---
 
@@ -8,17 +8,18 @@ A personal job search pipeline manager built on SQLite, with a Click CLI, a loca
 
 - **Pipeline tracking** — 8-stage funnel (Prospect → Closed) with tier priorities and job family labels
 - **AI fit scoring** — Claude evaluates your resume against a JD and returns a 1–10 score, strengths, gaps, and ATS keywords
+- **Tailored resume generation** — Claude rewrites your full resume optimized for a specific role and JD; persisted per opportunity
 - **Outreach drafting** — generates a LinkedIn connection note, InMail, and email for each contact
 - **Email sending** — sends outreach and thank-you emails via a local SMTP relay; tracks Day 0/3/7 follow-up cadence
 - **Thank-you drafting** — AI writes post-interview thank-you emails personalized by key moment and fit point
-- **Resume tailoring** — rewrites your bullets to mirror JD language without changing any metrics
+- **Resume bullet tailoring** — rewrites individual bullets to mirror JD language without changing any metrics (CLI)
 - **Interview prep** — behavioral and technical questions, company briefing, and questions to ask
 - **Follow-up queue** — surfaces contacts due for Day 3 and Day 7 follow-ups
 - **Daily digest** — AI-generated briefing: today's priorities, follow-up alerts, and pipeline health
 - **RSS/Atom job feed** — polls configured job board feeds, deduplicates by URL, and auto-adds new postings as Prospects
 - **Background scheduler** — runs digest, stale-record check, and feed poll automatically each day at a configurable time
 - **Metrics dashboard** — stage funnel, fit-score distribution, source and tier breakdowns, outreach response rates
-- **Local web dashboard** — filterable opportunity list, contact tracking, activity log, stage advancement
+- **Local web dashboard** — filterable opportunity list, contact tracking, activity log, stage management
 - **CSV export** — one click (or command) dumps the full pipeline to a dated CSV
 
 ---
@@ -112,7 +113,7 @@ The dashboard is local-only (binds to 127.0.0.1) with no authentication. The bac
 |---|---|
 | `/` | Today's queue, pipeline stage counts, stale opportunity alerts |
 | `/opportunities` | Full opportunity list with stage/tier/job-family filters |
-| `/opportunity/<id>` | Detail view: JD keywords, fit summary, contacts, activity log, stage advancement, AI scoring, interview prep |
+| `/opportunity/<id>` | Detail view: JD keywords, fit summary, contacts, activity log, stage management, AI scoring, interview prep, tailored resume |
 | `/add-job` | Two-step form — paste a URL or JD text → AI extracts fields → confirm and save |
 | `/contacts` | All contacts with response-status color coding and follow-up highlights |
 | `/metrics` | Pipeline funnel, fit-score distribution, source/tier breakdowns, outreach response rates |
@@ -122,6 +123,7 @@ The dashboard is local-only (binds to 127.0.0.1) with no authentication. The bac
 ### Opportunity detail actions (AJAX)
 
 - **Score Fit** — runs AI fit analysis against the cached resume and updates the score in-page
+- **Generate Tailored Resume** — rewrites your full resume for this specific role; result is saved and shown on future page loads
 - **Interview Prep** — generates prep materials (displayed inline, not stored)
 - **Draft Outreach** — writes LinkedIn note + email copy for a contact
 - **Send Email** — sends outreach or thank-you via SMTP relay, logs Day 0
@@ -136,7 +138,7 @@ The dashboard is local-only (binds to 127.0.0.1) with no authentication. The bac
 Prospect → Warm Lead → Applied → Recruiter Screen → HM Interview → Loop → Offer Pending → Closed
 ```
 
-Each stage transition recalculates `next_action_date` and logs to the activity trail.
+Each stage transition recalculates `next_action_date` and logs to the activity trail. The **Change Stage** card on the opportunity detail page allows movement in either direction. When closing an opportunity, a **Close Reason** field appears (Accepted / Declined / Rejected / Ghosted / Withdrew).
 
 ---
 
@@ -159,9 +161,9 @@ Configure feed URLs and keyword filters in **Settings → Job Feeds**. On each s
 1. Fetches each RSS/Atom feed URL
 2. Filters titles against your keyword list (blank = import everything)
 3. Deduplicates by posting URL — existing entries are never re-imported
-4. Creates new Prospect opportunities with source set to `Job Feed`
+4. Creates new Prospect opportunities with source set to `Other`
 
-No AI calls are made during ingestion. Run Score Fit from the opportunity page once you decide a posting is worth pursuing.
+No AI calls are made during ingestion. Run Score Fit or Generate Tailored Resume from the opportunity page once you decide a posting is worth pursuing.
 
 ---
 
@@ -179,7 +181,7 @@ No AI calls are made during ingestion. Run Score Fit from the opportunity page o
 │   └── activity.py
 │
 ├── modules/             Business logic
-│   ├── ai_engine.py     All Anthropic API calls (score, outreach, prep, tailor, digest, thank-you)
+│   ├── ai_engine.py     All Anthropic API calls (score, outreach, prep, tailor, digest, thank-you, resume)
 │   ├── workflow.py      Stage transitions, follow-up queue, stale alerts
 │   ├── ingester.py      JD parsing from URL or pasted text
 │   ├── digest.py        Daily digest generation
@@ -188,7 +190,7 @@ No AI calls are made during ingestion. Run Score Fit from the opportunity page o
 │   └── scheduler.py     Background thread: daily digest, stale check, feed poll
 │
 ├── db/
-│   ├── database.py      SQLite connection and query wrapper
+│   ├── database.py      SQLite connection, query wrapper, and schema migrations
 │   └── schema.sql       Tables, triggers, and views
 │
 ├── web/
@@ -225,6 +227,7 @@ Tests use a mocked Anthropic client and an in-memory SQLite database — no toke
 ## Data & Privacy
 
 - Resume text is cached locally in `.resume_cache.txt` and never written to the database
+- Tailored resumes are stored per-opportunity in the local SQLite database
 - The Anthropic API key is loaded from `.env` and never logged or committed
 - The database is a local SQLite file (`jobsearch.db` by default)
 - App settings (digest time, feed URLs, SMTP config) are stored in `app_settings.json`
