@@ -409,6 +409,23 @@ def register_routes(app):
         )
         return redirect(url_for("opportunity_detail", opp_id=opp_id))
 
+    @app.route("/add-job/preview-fit", methods=["POST"])
+    def add_job_preview_fit():
+        from modules.ai_engine import score_fit
+        jd_raw = request.form.get("jd_raw", "").strip()
+        if not jd_raw:
+            return jsonify({"error": "No job description text provided."}), 400
+        if not os.path.exists(RESUME_CACHE_PATH):
+            return jsonify({"error": "No resume cached. Save your resume in Settings first."}), 400
+        resume_text = open(RESUME_CACHE_PATH, encoding="utf-8").read().strip()
+        if not resume_text:
+            return jsonify({"error": "Resume cache is empty. Add your resume in Settings."}), 400
+        try:
+            result = score_fit(resume_text, jd_raw)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"error": f"AI analysis failed: {str(e)}"}), 500
+
     @app.route("/add-job", methods=["GET", "POST"])
     def add_job():
         from modules.ingester import ingest_jd
