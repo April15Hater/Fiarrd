@@ -426,6 +426,31 @@ def register_routes(app):
         except Exception as e:
             return jsonify({"error": f"AI analysis failed: {str(e)}"}), 500
 
+    @app.route("/add-job/quick-fit", methods=["POST"])
+    def add_job_quick_fit():
+        """Score fit from raw source input (URL or text) before extracting/saving."""
+        from modules.ai_engine import score_fit
+        from modules.ingester import _fetch_url
+        source_input = request.form.get("source_input", "").strip()
+        if not source_input:
+            return jsonify({"error": "No input provided."}), 400
+        if not os.path.exists(RESUME_CACHE_PATH):
+            return jsonify({"error": "No resume cached. Save your resume in Settings first."}), 400
+        resume_text = open(RESUME_CACHE_PATH, encoding="utf-8").read().strip()
+        if not resume_text:
+            return jsonify({"error": "Resume cache is empty. Add your resume in Settings."}), 400
+        try:
+            if source_input.lower().startswith("http"):
+                jd_text = _fetch_url(source_input)
+            elif len(source_input) > 200:
+                jd_text = source_input
+            else:
+                return jsonify({"error": "Input must be a URL or text longer than 200 characters."}), 400
+            result = score_fit(resume_text, jd_text)
+            return jsonify(result)
+        except Exception as e:
+            return jsonify({"error": f"AI analysis failed: {str(e)}"}), 500
+
     @app.route("/add-job", methods=["GET", "POST"])
     def add_job():
         from modules.ingester import ingest_jd

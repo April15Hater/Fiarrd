@@ -14,15 +14,69 @@
   <p style="font-size:13px;color:#64748b;margin-bottom:20px">
     Paste a job posting URL or the full JD text. AI will extract the key details.
   </p>
-  <form method="POST" action="/add-job">
+  <form method="POST" action="/add-job" id="extract-form">
     <input type="hidden" name="step" value="extract">
     <div class="form-group">
       <label>Job Posting URL or JD Text</label>
-      <textarea name="source_input" rows="5" placeholder="https://linkedin.com/jobs/view/...&#10;&#10;— or —&#10;&#10;Paste the full job description here..."></textarea>
+      <textarea name="source_input" id="source_input" rows="5" placeholder="https://linkedin.com/jobs/view/...&#10;&#10;— or —&#10;&#10;Paste the full job description here..."></textarea>
     </div>
-    <button type="submit" class="btn btn-primary">Extract with AI →</button>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button type="submit" class="btn btn-primary">Extract with AI →</button>
+      <button type="button" class="btn btn-secondary" id="quick-fit-btn" onclick="quickFit()">Check AI Fit First</button>
+    </div>
   </form>
+  <div id="quick-fit-result" style="margin-top:20px;display:none"></div>
 </div>
+
+<script>
+function quickFit() {
+  const btn = document.getElementById('quick-fit-btn');
+  const resultDiv = document.getElementById('quick-fit-result');
+  const input = document.getElementById('source_input').value.trim();
+  if (!input) {
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = '<div class="alert alert-warn">Paste a URL or job description first.</div>';
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  resultDiv.style.display = 'none';
+
+  const fd = new FormData();
+  fd.append('source_input', input);
+
+  fetch('/add-job/quick-fit', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      btn.textContent = 'Re-check Fit';
+      resultDiv.style.display = 'block';
+      if (data.error) {
+        resultDiv.innerHTML = `<div class="alert alert-warn">${data.error}</div>`;
+        return;
+      }
+      const scoreColor = data.fit_score >= 7 ? '#10b981' : data.fit_score >= 5 ? '#f59e0b' : '#ef4444';
+      const strengths = (data.top_strengths || []).map(s => `<li>${s}</li>`).join('');
+      const gaps = (data.gaps_or_risks || []).map(g => `<li>${g}</li>`).join('');
+      resultDiv.innerHTML = `
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin-bottom:16px">
+        <h3 style="margin-bottom:12px">AI Fit Preview</h3>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <span style="font-size:28px;font-weight:700;color:${scoreColor}">${data.fit_score}/10</span>
+          <span style="font-size:13px;color:#64748b">${data.score_rationale || ''}</span>
+        </div>
+        ${strengths ? `<p style="font-size:12px;font-weight:600;color:#10b981;margin-bottom:4px">STRENGTHS</p><ul style="font-size:13px;margin:0 0 12px 16px">${strengths}</ul>` : ''}
+        ${gaps ? `<p style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:4px">GAPS / RISKS</p><ul style="font-size:13px;margin:0 0 0 16px">${gaps}</ul>` : ''}
+      `;
+    })
+    .catch(err => {
+      btn.disabled = false;
+      btn.textContent = 'Check AI Fit First';
+      resultDiv.style.display = 'block';
+      resultDiv.innerHTML = `<div class="alert alert-warn">Request failed: ${err}</div>`;
+    });
+}
+</script>
 
 {% elif step == 2 %}
 

@@ -116,7 +116,7 @@ The dashboard is local-only (binds to 127.0.0.1) with no authentication. The bac
 | `/` | Today's queue, pipeline stage counts, stale opportunity alerts |
 | `/opportunities` | Full opportunity list with stage/tier/job-family filters; closed excluded by default — toggle "Show Closed" to include them; select rows for bulk stage updates |
 | `/opportunity/<id>` | Detail view: JD keywords, fit summary, contacts, activity log, stage management, AI scoring, interview prep, tailored resume |
-| `/add-job` | Two-step form — paste a URL or JD text → AI extracts fields → confirm and save |
+| `/add-job` | Two-step form — paste a URL or JD text → optionally check AI fit before extracting → AI extracts fields → confirm and save |
 | `/contacts` | All contacts with response-status color coding and follow-up highlights |
 | `/metrics` | Pipeline funnel, fit-score distribution, source/tier breakdowns, outreach response rates |
 | `/settings` | Edit resume, configure document templates, set daily digest time, configure SMTP relay, manage RSS feed URLs/keyword filters/auto-score/min-score threshold |
@@ -124,6 +124,7 @@ The dashboard is local-only (binds to 127.0.0.1) with no authentication. The bac
 
 ### Opportunity detail actions (AJAX)
 
+- **Check AI Fit First** _(add-job step 1)_ — scores fit inline before extracting or saving, so you can decide whether a job is worth importing
 - **Score Fit** — runs AI fit analysis against the cached resume and updates the score in-page
 - **Score Unscored ✦** _(pipeline list)_ — batch-scores all opportunities that are missing a fit score in one click
 - **Generate Tailored Resume** — rewrites your full resume for this specific role; result is saved and shown on future page loads
