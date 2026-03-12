@@ -16,6 +16,7 @@
   </p>
   <form method="POST" action="/add-job" id="extract-form">
     <input type="hidden" name="step" value="extract">
+    <input type="hidden" name="pre_fit_json" id="pre_fit_json" value="">
     <div class="form-group">
       <label>Job Posting URL or JD Text</label>
       <textarea name="source_input" id="source_input" rows="5" placeholder="https://linkedin.com/jobs/view/...&#10;&#10;— or —&#10;&#10;Paste the full job description here..."></textarea>
@@ -53,8 +54,11 @@ function quickFit() {
       resultDiv.style.display = 'block';
       if (data.error) {
         resultDiv.innerHTML = `<div class="alert alert-warn">${data.error}</div>`;
+        document.getElementById('pre_fit_json').value = '';
         return;
       }
+      // Persist fit result so it carries through to save (no duplicate AI call)
+      document.getElementById('pre_fit_json').value = JSON.stringify(data);
       const scoreColor = data.fit_score >= 7 ? '#10b981' : data.fit_score >= 5 ? '#f59e0b' : '#ef4444';
       const strengths = (data.top_strengths || []).map(s => `<li>${s}</li>`).join('');
       const gaps = (data.gaps_or_risks || []).map(g => `<li>${g}</li>`).join('');
@@ -95,6 +99,7 @@ function quickFit() {
         <input type="hidden" name="jd_raw" value="{{ extracted.jd_raw | e }}">
         <input type="hidden" name="jd_url" value="{{ extracted.jd_url | e }}">
         <input type="hidden" name="jd_keywords" value="{{ extracted.jd_keywords | e }}">
+        <input type="hidden" name="pre_fit_json" id="save-pre-fit-json" value="{{ extracted.pre_fit_json | e }}">
 
         <div class="form-group">
           <label>Company *</label>
@@ -160,8 +165,24 @@ function quickFit() {
     <div class="card">
       <h2>AI Fit Analysis</h2>
       <p style="font-size:13px;color:#64748b;margin-bottom:12px">Run a fit analysis against your resume before adding this job to the pipeline.</p>
-      <button id="check-fit-btn" class="btn btn-secondary" onclick="checkFit()">Check AI Fit</button>
-      <div id="fit-result" style="margin-top:16px;display:none"></div>
+      <button id="check-fit-btn" class="btn btn-secondary" onclick="checkFit()">{% if pre_fit %}Re-check Fit{% else %}Check AI Fit{% endif %}</button>
+      <div id="fit-result" style="margin-top:16px;{% if not pre_fit %}display:none{% endif %}">
+        {% if pre_fit %}
+        {% set score_color = '#10b981' if pre_fit.fit_score >= 7 else ('#f59e0b' if pre_fit.fit_score >= 5 else '#ef4444') %}
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+          <span style="font-size:28px;font-weight:700;color:{{ score_color }}">{{ pre_fit.fit_score }}/10</span>
+          <span style="font-size:13px;color:#64748b">{{ pre_fit.score_rationale or '' }}</span>
+        </div>
+        {% if pre_fit.top_strengths %}
+        <p style="font-size:12px;font-weight:600;color:#10b981;margin-bottom:4px">STRENGTHS</p>
+        <ul style="font-size:13px;margin:0 0 12px 16px">{% for s in pre_fit.top_strengths %}<li>{{ s }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% if pre_fit.gaps_or_risks %}
+        <p style="font-size:12px;font-weight:600;color:#ef4444;margin-bottom:4px">GAPS / RISKS</p>
+        <ul style="font-size:13px;margin:0 0 0 16px">{% for g in pre_fit.gaps_or_risks %}<li>{{ g }}</li>{% endfor %}</ul>
+        {% endif %}
+        {% endif %}
+      </div>
     </div>
 
     {% if extracted.jd_url %}
@@ -195,6 +216,8 @@ function checkFit() {
         resultDiv.innerHTML = `<div class="alert alert-warn">${data.error}</div>`;
         return;
       }
+      // Persist so fit is saved when "Save to Pipeline" is clicked
+      document.getElementById('save-pre-fit-json').value = JSON.stringify(data);
       const scoreColor = data.fit_score >= 7 ? '#10b981' : data.fit_score >= 5 ? '#f59e0b' : '#ef4444';
       const strengths = (data.top_strengths || []).map(s => `<li>${s}</li>`).join('');
       const gaps = (data.gaps_or_risks || []).map(g => `<li>${g}</li>`).join('');

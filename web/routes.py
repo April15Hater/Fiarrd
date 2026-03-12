@@ -463,12 +463,20 @@ def register_routes(app):
             source_input = request.form.get("source_input", "").strip()
             if not source_input:
                 return render_template("add_job.html", step=1, error="Please enter a URL or paste a job description.")
+            # Carry pre-computed fit data from Step 1 quick-fit (if run)
+            pre_fit_json = request.form.get("pre_fit_json", "").strip()
             try:
                 structured = ingest_jd(source_input)
             except Exception as e:
                 return render_template("add_job.html", step=1, error=f"Failed to extract JD: {str(e)}")
             family_reverse = {v: k for k, v in JOB_FAMILIES.items()}
             guessed_family = family_reverse.get(structured.get("job_family_guess", ""), "")
+            pre_fit = None
+            if pre_fit_json:
+                try:
+                    pre_fit = json.loads(pre_fit_json)
+                except (json.JSONDecodeError, TypeError):
+                    pre_fit_json = ""
             extracted = {
                 "company": structured.get("company") or "",
                 "role_title": structured.get("role_title") or "",
@@ -478,8 +486,9 @@ def register_routes(app):
                 "jd_raw": structured.get("raw_text") or "",
                 "jd_url": structured.get("source_url") or "",
                 "jd_keywords": json.dumps(structured.get("keywords") or []),
+                "pre_fit_json": pre_fit_json,
             }
-            return render_template("add_job.html", step=2, extracted=extracted, job_families=JOB_FAMILIES)
+            return render_template("add_job.html", step=2, extracted=extracted, pre_fit=pre_fit, job_families=JOB_FAMILIES)
 
         if step == "save":
             company = request.form.get("company", "").strip()
@@ -496,6 +505,17 @@ def register_routes(app):
             jd_raw = request.form.get("jd_raw", "") or None
             jd_url = request.form.get("jd_url", "").strip() or None
             jd_keywords = request.form.get("jd_keywords", "[]") or "[]"
+            # Persist pre-computed fit analysis if available (avoids duplicate AI call)
+            pre_fit_json = request.form.get("pre_fit_json", "").strip() or None
+            fit_score = None
+            ai_fit_summary = None
+            if pre_fit_json:
+                try:
+                    fit_data = json.loads(pre_fit_json)
+                    fit_score = fit_data.get("fit_score")
+                    ai_fit_summary = pre_fit_json
+                except (json.JSONDecodeError, TypeError):
+                    pass
             next_action_text, days_out = calculate_next_action("Prospect")
             next_action_date = (date.today() + timedelta(days=days_out)).isoformat()
             try:
@@ -512,6 +532,8 @@ def register_routes(app):
                     jd_keywords=jd_keywords,
                     next_action=next_action_text,
                     next_action_date=next_action_date,
+                    fit_score=fit_score,
+                    ai_fit_summary=ai_fit_summary,
                 )
                 log_activity(
                     activity_type="Note Added",

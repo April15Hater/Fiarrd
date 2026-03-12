@@ -72,17 +72,21 @@ def create_opportunity(
     next_action: str = None,
     next_action_date: str = None,
     notes: str = None,
+    fit_score: int = None,
+    ai_fit_summary: str = None,
 ) -> int:
     """Insert a new opportunity and return its id."""
     sql = """
         INSERT INTO opportunities
           (company, role_title, job_family, tier, stage, source, salary_range,
-           jd_url, jd_raw, jd_keywords, next_action, next_action_date, notes)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+           jd_url, jd_raw, jd_keywords, next_action, next_action_date, notes,
+           fit_score, ai_fit_summary)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     """
     return execute_query(sql, (
         company, role_title, job_family, tier, stage, source, salary_range,
-        jd_url, jd_raw, jd_keywords, next_action, next_action_date, notes
+        jd_url, jd_raw, jd_keywords, next_action, next_action_date, notes,
+        fit_score, ai_fit_summary,
     ))
 
 
