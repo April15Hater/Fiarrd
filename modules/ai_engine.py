@@ -355,12 +355,46 @@ EXISTING RESUME:
 JOB DESCRIPTION:
 {jd_text}
 
-Rewrite the full resume optimized for this role. Keep all sections (Summary, Experience, Skills, Education).
+Rewrite the full resume optimized for this role. Keep all sections (Summary, Core Skills, Experience, Education).
 Preserve every metric and number exactly. Mirror JD terminology naturally.
+
+The tailored_resume field MUST use EXACTLY this plain-text format — no markdown, no asterisks, no extra blank lines:
+
+FIRST NAME LAST NAME
+City, ST • phone • email • website
+HEADLINE | SUBHEADLINE
+
+SECTION HEADER
+• Skill label: description of skill
+• Skill label: description of skill
+
+SECTION HEADER
+Company Name | City, ST (Remote)
+Title • YYYY–YYYY
+• Bullet point one
+• Bullet point two
+
+Company Name | City, ST
+Title • YYYY–YYYY
+• Bullet point
+
+Additional Experience: Company — Title (YYYY–YYYY) • Company — Title (YYYY–YYYY)
+
+SECTION HEADER
+Degree or credential — Institution
+
+Rules:
+- Section headers are ALL CAPS (e.g. SUMMARY, CORE SKILLS, PROFESSIONAL EXPERIENCE, EDUCATION & CREDENTIALS)
+- Exactly one blank line between sections; no blank lines between bullets or between company header and role line
+- Bullets use • character
+- Company line format: "Company Name | City, ST" or "Company Name | City, ST (Remote)"
+- Role line format: "Title • YYYY–YYYY" (bullet dot between title and dates, en-dash between years)
+- Core Skills bullets use "Bold label: description" format
+- No horizontal rules, no dashes as dividers, no sub-section headers
 
 Return this JSON:
 {{
-  "tailored_resume": "<full rewritten resume as plain text>",
+  "tailored_resume": "<full rewritten resume using the exact format above>",
   "key_changes": ["<change 1>", "<change 2>", "<change 3>", "<change 4>", "<change 5>"]
 }}"""
 

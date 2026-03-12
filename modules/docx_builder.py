@@ -9,20 +9,37 @@ Placeholder strings:
   Resume:       [RESUME_CONTENT]
   Cover letter: [COVER_LETTER_CONTENT]
 
-Target format (matched to user's reference resume):
-  - Name:          18pt bold black Calibri, centered
-  - Contact line:  9pt gray Calibri, centered
-  - Tagline:       11pt bold black Calibri, centered (detected as ALL-CAPS or mixed-caps
-                   line containing | between the contact and first section header)
-  - Section hdrs:  11pt bold black Calibri, bottom border, 8pt space-before
-  - Company line:  10.5pt bold black Calibri, 8pt space-before (detected: contains " | "
-                   with location keywords OR is preceded/followed by a role line)
-  - Role line:     10pt normal Calibri (title • dates or title | dates)
-  - Bullets:       10pt Calibri List Bullet, 0pt space-after
-                   Bold inline label when line starts with "Bold Label: rest"
-  - Additional Exp single line: bold label + normal body on same paragraph
-  - Horizontal rules / sub-section --- markers: suppressed
-  - Body text:     10pt Calibri, 1pt space-after
+Expected resume plain-text format (enforced in AI prompt):
+
+  FIRST LAST
+  City, ST • phone • email • website
+  HEADLINE | SUBHEADLINE
+
+  SECTION HEADER
+  • Label: description
+  • Label: description
+
+  SECTION HEADER
+  Company Name | City, ST (Remote)
+  Title • YYYY–YYYY
+  • Bullet one
+  • Bullet two
+
+  Additional Experience: Co — Title (YYYY) • Co — Title (YYYY)
+
+  SECTION HEADER
+  Degree — Institution
+
+Line classification (in order of precedence):
+  1. name_idx      — first non-empty line
+  2. contact_idx   — contains • or @ or phone pattern, within 3 lines of name
+  3. tagline_idx   — next non-empty, non-section-header line after contact
+  4. section hdr   — ALL CAPS, 3+ chars
+  5. company line  — contains " | " AND NOT a year-range after •
+  6. role line     — contains • followed by 4-digit year
+  7. bullet        — starts with •
+  8. additional exp — starts with "Additional Experience:"
+  9. body text     — everything else
 """
 from __future__ import annotations
 import io
@@ -37,39 +54,15 @@ logger = logging.getLogger(__name__)
 # Regex helpers
 # ---------------------------------------------------------------------------
 
-# All-caps section headers (SUMMARY, EXPERIENCE, EDUCATION, CORE SKILLS, etc.)
 _SECTION_HEADER_RE = re.compile(r"^[A-Z][A-Z0-9\s&/\-]{2,}$")
-
-# Sub-section labels like  --- Portfolio Performance Analytics ---  (suppressed)
-_SUBSECTION_RE = re.compile(r"^-{2,3}\s+.+\s+-{2,3}$")
-
-# Horizontal rule lines (all dashes / underscores / box-drawing chars, 4+ chars)
-_HRULE_RE = re.compile(r"^[-─_]{4,}$")
-
-# Bullet lines:  "- text"  or  "• text"
-_BULLET_RE = re.compile(r"^[-•]\s+(.+)$")
-
-# Company line heuristic: contains " | " and has a city/state or "Remote" keyword,
-# OR contains " | " followed by a 4-digit year (old format fallback)
-_COMPANY_RE = re.compile(
-    r".+\|.+(?:Remote|NC|NY|CA|TX|FL|IL|GA|WA|CO|MA|OH|PA|VA|AZ|OR|MN|MI|NJ|DC|"
-    r"[A-Z]{2}\s*\(Remote\)|[A-Z]{2}\))|.+\|\s*\d{4}"
-)
-
-# Role / title line: contains a bullet-dot (•) followed by 4-digit year range,
-# or "| Contractor" pattern, or "| Senior" etc.
-_ROLE_LINE_RE = re.compile(r"[•|]\s*\d{4}|Contractor\s*[•|]|\|\s*(Senior|Principal|Lead|Manager|Analyst|Director|VP|Engineer|Developer)")
-
-# Inline bold label at start of bullet: "Bold Label: rest of text"
-# Matches "Word(s): " where label is 1-4 words ending with a colon
-_INLINE_BOLD_RE = re.compile(r"^([A-Za-z][A-Za-z\s&/\-]{1,40}):\s+(.+)$")
-
-# "Additional Experience: ..." single-line
+_BULLET_RE         = re.compile(r"^[•\-]\s+(.+)$")
+_COMPANY_RE        = re.compile(r"^.+\s+\|\s+.+$")          # "Name | Location"
+_ROLE_RE           = re.compile(r".+•\s*\d{4}")              # "Title • YYYY"
+_INLINE_BOLD_RE    = re.compile(r"^([A-Za-z][A-Za-z\s&/\-]{1,40}):\s+(.+)$")
 _ADDITIONAL_EXP_RE = re.compile(r"^Additional Experience:\s*(.+)$", re.IGNORECASE)
 
 
 def _sanitize(text: str) -> str:
-    """Strip XML-illegal control characters (keeps tab, newline, CR)."""
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text or "")
 
 
@@ -95,12 +88,12 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
 
     doc = Document()
 
-    # ── Default style ────────────────────────────────────────────────────────
+    # Default style
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
     style.font.size = Pt(10)
 
-    # ── Margins ──────────────────────────────────────────────────────────────
+    # Margins
     for sec in doc.sections:
         sec.top_margin    = Inches(0.75)
         sec.bottom_margin = Inches(0.75)
@@ -110,176 +103,158 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
     BLACK = RGBColor(0x00, 0x00, 0x00)
     GRAY  = RGBColor(0x47, 0x55, 0x69)
 
-    lines = resume_text.splitlines()
+    lines = [l.rstrip() for l in resume_text.splitlines()]
 
-    # ── Pass 1: locate structural anchor lines ───────────────────────────────
-    name_idx    = next((i for i, l in enumerate(lines) if l.strip()), None)
+    # ── Locate structural anchor lines ──────────────────────────────────────
+    name_idx = next((i for i, l in enumerate(lines) if l.strip()), None)
     contact_idx = None
     tagline_idx = None
-    first_section_idx = None
 
     if name_idx is not None:
-        # Contact line: within 3 lines of name, contains @ or phone pattern or |
         for i in range(name_idx + 1, min(name_idx + 4, len(lines))):
             l = lines[i].strip()
-            if l and ("|" in l or "•" in l or "@" in l or re.search(r"\d{3}[-.\s]\d{3}", l)):
+            if l and ("•" in l or "@" in l or re.search(r"\d{3}[-.\s]\d{3}", l)):
                 contact_idx = i
                 break
 
-        # First section header
-        for i in range(name_idx + 1, len(lines)):
-            if _SECTION_HEADER_RE.match(lines[i].strip()) and not _HRULE_RE.match(lines[i].strip()):
-                first_section_idx = i
+        # Tagline: first non-empty non-section-header line after contact
+        start = (contact_idx + 1) if contact_idx is not None else (name_idx + 1)
+        for i in range(start, min(start + 5, len(lines))):
+            l = lines[i].strip()
+            if l and not _SECTION_HEADER_RE.match(l):
+                tagline_idx = i
                 break
 
-        # Tagline: between contact and first section — non-empty, non-hrule, non-section-header
-        if contact_idx is not None and first_section_idx is not None:
-            for i in range(contact_idx + 1, first_section_idx):
-                l = lines[i].strip()
-                if l and not _HRULE_RE.match(l) and not _SECTION_HEADER_RE.match(l):
-                    tagline_idx = i
-                    break
-
-    # ── Pass 2: render each line ─────────────────────────────────────────────
-    i = 0
-    while i < len(lines):
-        raw      = lines[i]
-        line     = raw.rstrip()
+    # ── Render ───────────────────────────────────────────────────────────────
+    for idx, line in enumerate(lines):
         stripped = line.strip()
-        idx      = i
-        i += 1
 
-        # ── Name ────────────────────────────────────────────────────────────
+        # Name
         if idx == name_idx:
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after  = Pt(2)
-            run = p.add_run(stripped)
-            run.bold = True
-            run.font.name = "Calibri"
-            run.font.size = Pt(18)
-            run.font.color.rgb = BLACK
+            r = p.add_run(stripped)
+            r.bold = True
+            r.font.name = "Calibri"
+            r.font.size = Pt(18)
+            r.font.color.rgb = BLACK
             continue
 
-        # ── Contact line ─────────────────────────────────────────────────────
+        # Contact
         if idx == contact_idx:
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after  = Pt(3)
-            run = p.add_run(stripped)
-            run.font.name = "Calibri"
-            run.font.size = Pt(9)
-            run.font.color.rgb = GRAY
+            p.paragraph_format.space_after  = Pt(2)
+            r = p.add_run(stripped)
+            r.font.name = "Calibri"
+            r.font.size = Pt(9)
+            r.font.color.rgb = GRAY
             continue
 
-        # ── Tagline (headline / target role) ─────────────────────────────────
+        # Tagline
         if idx == tagline_idx:
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-            p.paragraph_format.space_before = Pt(2)
+            p.paragraph_format.space_before = Pt(3)
             p.paragraph_format.space_after  = Pt(6)
-            run = p.add_run(stripped)
-            run.bold = True
-            run.font.name = "Calibri"
-            run.font.size = Pt(11)
-            run.font.color.rgb = BLACK
+            r = p.add_run(stripped)
+            r.bold = True
+            r.font.name = "Calibri"
+            r.font.size = Pt(11)
+            r.font.color.rgb = BLACK
             continue
 
-        # ── Suppress horizontal rules and sub-section markers ────────────────
-        if _HRULE_RE.match(stripped) or _SUBSECTION_RE.match(stripped):
-            continue
-
-        # ── Empty line ───────────────────────────────────────────────────────
+        # Empty line → small spacer
         if not stripped:
             p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after  = Pt(2)
             continue
 
-        # ── All-caps section header ──────────────────────────────────────────
+        # Section header
         if _SECTION_HEADER_RE.match(stripped):
             p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(8)
             p.paragraph_format.space_after  = Pt(2)
-            run = p.add_run(stripped)
-            run.bold = True
-            run.font.name = "Calibri"
-            run.font.size = Pt(11)
-            run.font.color.rgb = BLACK
-            _add_bottom_border(p, color="000000")
+            r = p.add_run(stripped)
+            r.bold = True
+            r.font.name = "Calibri"
+            r.font.size = Pt(11)
+            r.font.color.rgb = BLACK
+            _add_bottom_border(p)
             continue
 
-        # ── Additional Experience single-line ────────────────────────────────
+        # Additional Experience single line
         m = _ADDITIONAL_EXP_RE.match(stripped)
         if m:
             p = doc.add_paragraph()
             p.paragraph_format.space_before = Pt(4)
             p.paragraph_format.space_after  = Pt(2)
-            bold_run = p.add_run("Additional Experience: ")
-            bold_run.bold = True
-            bold_run.font.name = "Calibri"
-            bold_run.font.size = Pt(10)
-            body_run = p.add_run(m.group(1))
-            body_run.font.name = "Calibri"
-            body_run.font.size = Pt(10)
+            r1 = p.add_run("Additional Experience: ")
+            r1.bold = True
+            r1.font.name = "Calibri"
+            r1.font.size = Pt(10)
+            r2 = p.add_run(m.group(1))
+            r2.font.name = "Calibri"
+            r2.font.size = Pt(10)
             continue
 
-        # ── Company line ─────────────────────────────────────────────────────
-        if _COMPANY_RE.search(stripped):
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(8)
-            p.paragraph_format.space_after  = Pt(0)
-            run = p.add_run(stripped)
-            run.bold = True
-            run.font.name = "Calibri"
-            run.font.size = Pt(10.5)
-            run.font.color.rgb = BLACK
-            continue
-
-        # ── Role / title line (title • dates or title | dates) ───────────────
-        if _ROLE_LINE_RE.search(stripped):
-            p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after  = Pt(3)
-            run = p.add_run(stripped)
-            run.font.name = "Calibri"
-            run.font.size = Pt(10)
-            run.font.color.rgb = BLACK
-            continue
-
-        # ── Bullet point ─────────────────────────────────────────────────────
-        bm = _BULLET_RE.match(stripped)
-        if bm:
-            text = bm.group(1)
+        # Bullet
+        m = _BULLET_RE.match(stripped)
+        if m:
+            text = m.group(1)
             p = doc.add_paragraph(style="List Bullet")
             p.paragraph_format.space_before = Pt(0)
             p.paragraph_format.space_after  = Pt(1)
             p.paragraph_format.left_indent  = Inches(0.25)
-            # Check for inline bold label "Label: rest"
             lm = _INLINE_BOLD_RE.match(text)
             if lm:
-                bold_run = p.add_run(lm.group(1) + ": ")
-                bold_run.bold = True
-                bold_run.font.name = "Calibri"
-                bold_run.font.size = Pt(10)
-                body_run = p.add_run(lm.group(2))
-                body_run.font.name = "Calibri"
-                body_run.font.size = Pt(10)
+                r1 = p.add_run(lm.group(1) + ": ")
+                r1.bold = True
+                r1.font.name = "Calibri"
+                r1.font.size = Pt(10)
+                r2 = p.add_run(lm.group(2))
+                r2.font.name = "Calibri"
+                r2.font.size = Pt(10)
             else:
-                run = p.add_run(text)
-                run.font.name = "Calibri"
-                run.font.size = Pt(10)
+                r = p.add_run(text)
+                r.font.name = "Calibri"
+                r.font.size = Pt(10)
             continue
 
-        # ── Default body text ────────────────────────────────────────────────
+        # Role line  "Title • YYYY–YYYY"  — check before company so it wins
+        if _ROLE_RE.search(stripped):
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after  = Pt(3)
+            r = p.add_run(stripped)
+            r.font.name = "Calibri"
+            r.font.size = Pt(10)
+            r.font.color.rgb = BLACK
+            continue
+
+        # Company line  "Name | Location"
+        if _COMPANY_RE.match(stripped):
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(8)
+            p.paragraph_format.space_after  = Pt(0)
+            r = p.add_run(stripped)
+            r.bold = True
+            r.font.name = "Calibri"
+            r.font.size = Pt(10.5)
+            r.font.color.rgb = BLACK
+            continue
+
+        # Body text (summary paragraph, education lines, etc.)
         p = doc.add_paragraph()
         p.paragraph_format.space_before = Pt(0)
-        p.paragraph_format.space_after  = Pt(1)
-        run = p.add_run(line)
-        run.font.name = "Calibri"
-        run.font.size = Pt(10)
+        p.paragraph_format.space_after  = Pt(2)
+        r = p.add_run(stripped)
+        r.font.name = "Calibri"
+        r.font.size = Pt(10)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -288,7 +263,6 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
 
 
 def _add_bottom_border(paragraph, color: str = "000000", sz: str = "4"):
-    """Add a bottom paragraph border to visually underline a section header."""
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
     pPr  = paragraph._p.get_or_add_pPr()
@@ -309,8 +283,6 @@ def _add_bottom_border(paragraph, color: str = "000000", sz: str = "4"):
 def build_cover_letter_docx(cover_letter_text: str, template_path: str = None) -> bytes:
     """
     Build a cover letter .docx from cover_letter_text.
-    If template_path points to a valid .docx, inject content there.
-    Otherwise build from scratch.
     Returns raw bytes suitable for a Flask response.
     """
     from docx import Document
@@ -333,23 +305,21 @@ def build_cover_letter_docx(cover_letter_text: str, template_path: str = None) -
         section.left_margin   = Inches(1.0)
         section.right_margin  = Inches(1.0)
 
-    # Date header
     p = doc.add_paragraph(date.today().strftime("%B %d, %Y"))
     p.paragraph_format.space_after = Pt(12)
-    for run in p.runs:
-        run.font.name = "Calibri"
-        run.font.size = Pt(11)
+    for r in p.runs:
+        r.font.name = "Calibri"
+        r.font.size = Pt(11)
 
-    # Body paragraphs
     for para in cover_letter_text.split("\n\n"):
         para = para.strip()
         if not para:
             continue
         p = doc.add_paragraph(para)
         p.paragraph_format.space_after = Pt(10)
-        for run in p.runs:
-            run.font.name = "Calibri"
-            run.font.size = Pt(11)
+        for r in p.runs:
+            r.font.name = "Calibri"
+            r.font.size = Pt(11)
 
     buf = io.BytesIO()
     doc.save(buf)
@@ -362,10 +332,6 @@ def build_cover_letter_docx(cover_letter_text: str, template_path: str = None) -
 # ---------------------------------------------------------------------------
 
 def _inject_into_template(content: str, template_path: str, placeholder: str) -> bytes:
-    """
-    Open a .docx template, find the paragraph containing placeholder,
-    replace it with the content lines, and return bytes.
-    """
     from docx import Document
     from docx.shared import Pt
     from docx.oxml.ns import qn
@@ -381,18 +347,17 @@ def _inject_into_template(content: str, template_path: str, placeholder: str) ->
 
     if target_para is None:
         logger.warning(
-            "Placeholder '%s' not found in template %s — falling back to appending content.",
+            "Placeholder '%s' not found in template %s — appending content.",
             placeholder, template_path
         )
         for line in content.splitlines():
             p = doc.add_paragraph(line.rstrip())
-            for run in p.runs:
-                run.font.size = Pt(10)
+            for r in p.runs:
+                r.font.size = Pt(10)
     else:
         parent = target_para._element.getparent()
         idx = list(parent).index(target_para._element)
         parent.remove(target_para._element)
-
         for j, line in enumerate(content.splitlines()):
             new_p = OxmlElement("w:p")
             new_r = OxmlElement("w:r")
