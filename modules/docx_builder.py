@@ -8,6 +8,21 @@ Two modes:
 Placeholder strings:
   Resume:       [RESUME_CONTENT]
   Cover letter: [COVER_LETTER_CONTENT]
+
+Target format (matched to user's reference resume):
+  - Name:          18pt bold black Calibri, centered
+  - Contact line:  9pt gray Calibri, centered
+  - Tagline:       11pt bold black Calibri, centered (detected as ALL-CAPS or mixed-caps
+                   line containing | between the contact and first section header)
+  - Section hdrs:  11pt bold black Calibri, bottom border, 8pt space-before
+  - Company line:  10.5pt bold black Calibri, 8pt space-before (detected: contains " | "
+                   with location keywords OR is preceded/followed by a role line)
+  - Role line:     10pt normal Calibri (title • dates or title | dates)
+  - Bullets:       10pt Calibri List Bullet, 0pt space-after
+                   Bold inline label when line starts with "Bold Label: rest"
+  - Additional Exp single line: bold label + normal body on same paragraph
+  - Horizontal rules / sub-section --- markers: suppressed
+  - Body text:     10pt Calibri, 1pt space-after
 """
 from __future__ import annotations
 import io
@@ -19,25 +34,38 @@ from datetime import date
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Line classification helpers
+# Regex helpers
 # ---------------------------------------------------------------------------
 
-# All-caps section headers (SUMMARY, EXPERIENCE, EDUCATION, CORE COMPETENCIES, etc.)
-_SECTION_HEADER_RE = re.compile(
-    r"^[A-Z][A-Z0-9\s&/\-]{2,}$"
-)
+# All-caps section headers (SUMMARY, EXPERIENCE, EDUCATION, CORE SKILLS, etc.)
+_SECTION_HEADER_RE = re.compile(r"^[A-Z][A-Z0-9\s&/\-]{2,}$")
 
-# Sub-section labels like  --- Portfolio Performance Analytics & Reporting ---
-_SUBSECTION_RE = re.compile(r"^-{2,3}\s+(.+?)\s+-{2,3}$")
+# Sub-section labels like  --- Portfolio Performance Analytics ---  (suppressed)
+_SUBSECTION_RE = re.compile(r"^-{2,3}\s+.+\s+-{2,3}$")
 
-# Horizontal rule lines (all dashes or underscores, 4+ chars)
+# Horizontal rule lines (all dashes / underscores / box-drawing chars, 4+ chars)
 _HRULE_RE = re.compile(r"^[-─_]{4,}$")
 
 # Bullet lines:  "- text"  or  "• text"
 _BULLET_RE = re.compile(r"^[-•]\s+(.+)$")
 
-# Company/role line heuristic: contains " | " with a year range
-_COMPANY_LINE_RE = re.compile(r".+\|\s*\d{4}")
+# Company line heuristic: contains " | " and has a city/state or "Remote" keyword,
+# OR contains " | " followed by a 4-digit year (old format fallback)
+_COMPANY_RE = re.compile(
+    r".+\|.+(?:Remote|NC|NY|CA|TX|FL|IL|GA|WA|CO|MA|OH|PA|VA|AZ|OR|MN|MI|NJ|DC|"
+    r"[A-Z]{2}\s*\(Remote\)|[A-Z]{2}\))|.+\|\s*\d{4}"
+)
+
+# Role / title line: contains a bullet-dot (•) followed by 4-digit year range,
+# or "| Contractor" pattern, or "| Senior" etc.
+_ROLE_LINE_RE = re.compile(r"[•|]\s*\d{4}|Contractor\s*[•|]|\|\s*(Senior|Principal|Lead|Manager|Analyst|Director|VP|Engineer|Developer)")
+
+# Inline bold label at start of bullet: "Bold Label: rest of text"
+# Matches "Word(s): " where label is 1-4 words ending with a colon
+_INLINE_BOLD_RE = re.compile(r"^([A-Za-z][A-Za-z\s&/\-]{1,40}):\s+(.+)$")
+
+# "Additional Experience: ..." single-line
+_ADDITIONAL_EXP_RE = re.compile(r"^Additional Experience:\s*(.+)$", re.IGNORECASE)
 
 
 def _sanitize(text: str) -> str:
@@ -59,8 +87,6 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
     from docx import Document
     from docx.shared import Pt, Inches, RGBColor
     from docx.enum.text import WD_ALIGN_PARAGRAPH
-    from docx.oxml.ns import qn
-    from docx.oxml import OxmlElement
 
     resume_text = _sanitize(resume_text)
 
@@ -69,7 +95,7 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
 
     doc = Document()
 
-    # ── Default style: Calibri 10pt ──────────────────────────────────────────
+    # ── Default style ────────────────────────────────────────────────────────
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
     style.font.size = Pt(10)
@@ -81,32 +107,50 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
         sec.left_margin   = Inches(0.75)
         sec.right_margin  = Inches(0.75)
 
-    NAVY  = RGBColor(0x0F, 0x17, 0x2A)
-    BLUE  = RGBColor(0x1D, 0x4E, 0xD8)
+    BLACK = RGBColor(0x00, 0x00, 0x00)
     GRAY  = RGBColor(0x47, 0x55, 0x69)
 
     lines = resume_text.splitlines()
 
-    # ── Pass 1: find the name line (first non-empty line) and contact line ───
+    # ── Pass 1: locate structural anchor lines ───────────────────────────────
     name_idx    = next((i for i, l in enumerate(lines) if l.strip()), None)
     contact_idx = None
+    tagline_idx = None
+    first_section_idx = None
+
     if name_idx is not None:
+        # Contact line: within 3 lines of name, contains @ or phone pattern or |
         for i in range(name_idx + 1, min(name_idx + 4, len(lines))):
             l = lines[i].strip()
-            if l and ("|" in l or "@" in l or re.search(r"\d{3}[-.\s]\d{3}", l)):
+            if l and ("|" in l or "•" in l or "@" in l or re.search(r"\d{3}[-.\s]\d{3}", l)):
                 contact_idx = i
                 break
+
+        # First section header
+        for i in range(name_idx + 1, len(lines)):
+            if _SECTION_HEADER_RE.match(lines[i].strip()) and not _HRULE_RE.match(lines[i].strip()):
+                first_section_idx = i
+                break
+
+        # Tagline: between contact and first section — non-empty, non-hrule, non-section-header
+        if contact_idx is not None and first_section_idx is not None:
+            for i in range(contact_idx + 1, first_section_idx):
+                l = lines[i].strip()
+                if l and not _HRULE_RE.match(l) and not _SECTION_HEADER_RE.match(l):
+                    tagline_idx = i
+                    break
 
     # ── Pass 2: render each line ─────────────────────────────────────────────
     i = 0
     while i < len(lines):
-        raw  = lines[i]
-        line = raw.rstrip()
+        raw      = lines[i]
+        line     = raw.rstrip()
         stripped = line.strip()
+        idx      = i
         i += 1
 
         # ── Name ────────────────────────────────────────────────────────────
-        if (name_idx is not None) and (i - 1 == name_idx):
+        if idx == name_idx:
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before = Pt(0)
@@ -115,28 +159,36 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
             run.bold = True
             run.font.name = "Calibri"
             run.font.size = Pt(18)
-            run.font.color.rgb = NAVY
+            run.font.color.rgb = BLACK
             continue
 
         # ── Contact line ─────────────────────────────────────────────────────
-        if (contact_idx is not None) and (i - 1 == contact_idx):
+        if idx == contact_idx:
             p = doc.add_paragraph()
             p.alignment = WD_ALIGN_PARAGRAPH.CENTER
             p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after  = Pt(4)
+            p.paragraph_format.space_after  = Pt(3)
             run = p.add_run(stripped)
             run.font.name = "Calibri"
             run.font.size = Pt(9)
             run.font.color.rgb = GRAY
             continue
 
-        # ── Horizontal rule (───── or ─────) ─────────────────────────────────
-        if _HRULE_RE.match(stripped):
-            # Render as a thin bottom-border paragraph (invisible text)
+        # ── Tagline (headline / target role) ─────────────────────────────────
+        if idx == tagline_idx:
             p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after  = Pt(0)
-            _add_bottom_border(p, color="1D4ED8")
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            p.paragraph_format.space_before = Pt(2)
+            p.paragraph_format.space_after  = Pt(6)
+            run = p.add_run(stripped)
+            run.bold = True
+            run.font.name = "Calibri"
+            run.font.size = Pt(11)
+            run.font.color.rgb = BLACK
+            continue
+
+        # ── Suppress horizontal rules and sub-section markers ────────────────
+        if _HRULE_RE.match(stripped) or _SUBSECTION_RE.match(stripped):
             continue
 
         # ── Empty line ───────────────────────────────────────────────────────
@@ -155,48 +207,70 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
             run.bold = True
             run.font.name = "Calibri"
             run.font.size = Pt(11)
-            run.font.color.rgb = BLUE
-            _add_bottom_border(p, color="1D4ED8")
+            run.font.color.rgb = BLACK
+            _add_bottom_border(p, color="000000")
             continue
 
-        # ── Sub-section label  --- Foo Bar --- ───────────────────────────────
-        m = _SUBSECTION_RE.match(stripped)
+        # ── Additional Experience single-line ────────────────────────────────
+        m = _ADDITIONAL_EXP_RE.match(stripped)
         if m:
-            label = m.group(1)
             p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(6)
-            p.paragraph_format.space_after  = Pt(1)
-            run = p.add_run(label)
-            run.bold   = True
-            run.italic = True
-            run.font.name = "Calibri"
-            run.font.size = Pt(10)
-            run.font.color.rgb = GRAY
+            p.paragraph_format.space_before = Pt(4)
+            p.paragraph_format.space_after  = Pt(2)
+            bold_run = p.add_run("Additional Experience: ")
+            bold_run.bold = True
+            bold_run.font.name = "Calibri"
+            bold_run.font.size = Pt(10)
+            body_run = p.add_run(m.group(1))
+            body_run.font.name = "Calibri"
+            body_run.font.size = Pt(10)
             continue
 
-        # ── Bullet point ─────────────────────────────────────────────────────
-        m = _BULLET_RE.match(stripped)
-        if m:
-            text = m.group(1)
-            p = doc.add_paragraph(style="List Bullet")
-            p.paragraph_format.space_before = Pt(0)
-            p.paragraph_format.space_after  = Pt(1)
-            p.paragraph_format.left_indent  = Inches(0.2)
-            run = p.add_run(text)
-            run.font.name = "Calibri"
-            run.font.size = Pt(10)
-            continue
-
-        # ── Company / role line  (contains " | " + year) ────────────────────
-        if _COMPANY_LINE_RE.search(stripped):
+        # ── Company line ─────────────────────────────────────────────────────
+        if _COMPANY_RE.search(stripped):
             p = doc.add_paragraph()
-            p.paragraph_format.space_before = Pt(5)
+            p.paragraph_format.space_before = Pt(8)
             p.paragraph_format.space_after  = Pt(0)
             run = p.add_run(stripped)
             run.bold = True
             run.font.name = "Calibri"
+            run.font.size = Pt(10.5)
+            run.font.color.rgb = BLACK
+            continue
+
+        # ── Role / title line (title • dates or title | dates) ───────────────
+        if _ROLE_LINE_RE.search(stripped):
+            p = doc.add_paragraph()
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after  = Pt(3)
+            run = p.add_run(stripped)
+            run.font.name = "Calibri"
             run.font.size = Pt(10)
-            run.font.color.rgb = NAVY
+            run.font.color.rgb = BLACK
+            continue
+
+        # ── Bullet point ─────────────────────────────────────────────────────
+        bm = _BULLET_RE.match(stripped)
+        if bm:
+            text = bm.group(1)
+            p = doc.add_paragraph(style="List Bullet")
+            p.paragraph_format.space_before = Pt(0)
+            p.paragraph_format.space_after  = Pt(1)
+            p.paragraph_format.left_indent  = Inches(0.25)
+            # Check for inline bold label "Label: rest"
+            lm = _INLINE_BOLD_RE.match(text)
+            if lm:
+                bold_run = p.add_run(lm.group(1) + ": ")
+                bold_run.bold = True
+                bold_run.font.name = "Calibri"
+                bold_run.font.size = Pt(10)
+                body_run = p.add_run(lm.group(2))
+                body_run.font.name = "Calibri"
+                body_run.font.size = Pt(10)
+            else:
+                run = p.add_run(text)
+                run.font.name = "Calibri"
+                run.font.size = Pt(10)
             continue
 
         # ── Default body text ────────────────────────────────────────────────
@@ -213,7 +287,7 @@ def build_resume_docx(resume_text: str, template_path: str = None) -> bytes:
     return buf.read()
 
 
-def _add_bottom_border(paragraph, color: str = "1D4ED8", sz: str = "4"):
+def _add_bottom_border(paragraph, color: str = "000000", sz: str = "4"):
     """Add a bottom paragraph border to visually underline a section header."""
     from docx.oxml.ns import qn
     from docx.oxml import OxmlElement
@@ -294,6 +368,8 @@ def _inject_into_template(content: str, template_path: str, placeholder: str) ->
     """
     from docx import Document
     from docx.shared import Pt
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
 
     doc = Document(template_path)
 
@@ -313,11 +389,8 @@ def _inject_into_template(content: str, template_path: str, placeholder: str) ->
             for run in p.runs:
                 run.font.size = Pt(10)
     else:
-        from docx.oxml.ns import qn
-        from docx.oxml import OxmlElement
         parent = target_para._element.getparent()
         idx = list(parent).index(target_para._element)
-
         parent.remove(target_para._element)
 
         for j, line in enumerate(content.splitlines()):
